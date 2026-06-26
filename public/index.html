@@ -1,166 +1,181 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Desire Dress - 款号搜索</title>
+<title>Desire Dress</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#f8f7ff;color:#333;min-height:100vh}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-serif;background:#fafaf7;color:#333;min-height:100vh}
 
-.header{background:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #eee;position:sticky;top:0;z-index:100}
-.logo{font-size:16px;font-weight:700;color:#6c5ce7}
-.logo span{font-weight:400;color:#999;font-size:13px;margin-left:8px}
-.logout-btn{background:none;border:1px solid #ddd;color:#999;font-size:12px;cursor:pointer;padding:5px 12px;border-radius:6px}
+/* Login */
+.login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:#fafaf7}
+.login-card{background:#fff;border-radius:16px;padding:48px 36px;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,0.06);text-align:center}
+.login-card h2{font-size:26px;font-weight:700;color:#2d5a3d;margin-bottom:4px}
+.login-card p{font-size:13px;color:#999;margin-bottom:28px}
+.login-card input{width:100%;padding:13px 16px;border:2px solid #e8e8e4;border-radius:10px;font-size:16px;outline:none;transition:border .2s}
+.login-card input:focus{border-color:#5a8f6e}
+.login-card button{width:100%;margin-top:16px;padding:13px;background:#5a8f6e;color:#fff;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer}
+.login-card button:active{background:#4a7d5e}
+.login-error{color:#c0392b;font-size:13px;margin-top:10px;display:none}
 
-.login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:linear-gradient(160deg,#f8f7ff 0%,#e8e4f8 100%)}
-.login-card{background:#fff;border-radius:24px;padding:48px 36px;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(108,92,231,0.1);text-align:center}
-.login-card h2{font-size:28px;font-weight:700;color:#6c5ce7;margin-bottom:4px}
-.login-card p{font-size:14px;color:#aaa;margin-bottom:32px}
-.login-card input{width:100%;padding:14px 18px;border:2px solid #eee;border-radius:14px;font-size:16px;outline:none;transition:border-color .2s}
-.login-card input:focus{border-color:#6c5ce7}
-.login-card button{width:100%;margin-top:18px;padding:14px;background:#6c5ce7;color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer}
-.login-card button:active{background:#5a4bd1}
-.login-error{color:#e74c3c;font-size:13px;margin-top:12px;display:none}
+.search-page{display:none;max-width:640px;margin:0 auto}
 
-.search-page{display:none}
+/* Header */
+.site-header{text-align:center;padding:28px 16px 8px}
+.site-header h1{font-size:24px;font-weight:700;color:#2d5a3d;letter-spacing:0.5px}
+.site-header p{font-size:13px;color:#999;margin-top:4px}
+.site-status{font-size:12px;color:#5a8f6e;margin-top:8px;padding:4px 12px;background:#e8f5e9;border-radius:20px;display:inline-block}
+.site-status.loading{color:#999;background:#f0f0ea}
+.logout-link{position:absolute;right:16px;top:16px;font-size:12px;color:#bbb;cursor:pointer;text-decoration:none}
 
-.upload-section{padding:16px 16px 8px}
-.upload-area{background:#fff;border:2px dashed #d5d0f0;border-radius:20px;padding:32px 16px;text-align:center;cursor:pointer;transition:all .2s}
-.upload-area.dragover{border-color:#6c5ce7;background:#f5f3ff}
-.upload-area.has-image{border-style:solid;border-color:#6c5ce7;padding:12px}
-.upload-icon{font-size:48px;margin-bottom:8px}
-.upload-hint{font-size:14px;color:#aaa;line-height:1.6}
-.upload-hint b{color:#6c5ce7;font-weight:500}
-.upload-btns{display:flex;gap:10px;justify-content:center;margin-top:14px}
-.upload-btns label{padding:8px 18px;background:#f5f3ff;border:1px solid #e0daf5;border-radius:10px;font-size:13px;cursor:pointer;color:#6c5ce7}
-.preview-box{display:none}
-.preview-box.show{display:block}
-.preview-box img{max-width:100%;max-height:220px;border-radius:12px;display:block;margin:0 auto 14px}
-.preview-btns{display:flex;gap:10px;justify-content:center}
-.preview-btns button{padding:10px 28px;border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;border:none}
-.btn-go{background:#6c5ce7;color:#fff;flex:1;max-width:180px}
-.btn-go:disabled{background:#ccc}
-.btn-re{background:#f0eef8;color:#6c5ce7}
+/* Upload */
+.upload-wrap{padding:12px 16px}
+.upload-area{background:#fff;border:2px dashed #ccc;border-radius:14px;padding:36px 16px;text-align:center;cursor:pointer;transition:all .15s;position:relative}
+.upload-area.dragover{border-color:#5a8f6e;background:#f5faf5}
+.upload-area.has-img{border-style:solid;border-color:#5a8f6e;padding:12px}
+.upload-area .upload-icon{font-size:44px;margin-bottom:6px}
+.upload-area .upload-txt{font-size:14px;color:#aaa}
+.upload-area .upload-txt b{color:#5a8f6e}
+.upload-btns{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.upload-btns label{padding:7px 16px;background:#f5faf5;border:1px solid #d0e0d5;border-radius:8px;font-size:13px;cursor:pointer;color:#5a8f6e}
 
-.results{padding:8px 16px 24px}
-.result-card{background:#fff;border-radius:18px;margin-bottom:12px;overflow:hidden;box-shadow:0 2px 16px rgba(108,92,231,0.06)}
-.r-top{display:flex}
-.r-img{width:110px;min-height:130px;background:#f5f3ff;flex-shrink:0;display:flex;align-items:center;justify-content:center}
-.r-img img{width:100%;height:100%;object-fit:cover}
-.r-img .ph{font-size:36px;opacity:.25}
-.r-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;justify-content:center}
-.r-row1{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.r-style{font-size:22px;font-weight:700;color:#2d2d2d}
-.r-pct{font-size:13px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
-.pct-hi{background:#d4edda;color:#155724}
-.pct-md{background:#fff3cd;color:#856404}
-.pct-lo{background:#f8d7da;color:#721c24}
-.r-prices{display:flex;gap:8px;margin-bottom:6px}
-.r-price{flex:1;background:#f8f7ff;border-radius:10px;padding:8px 10px;position:relative;border-left:3px solid #6c5ce7}
-.r-price .lbl{font-size:11px;color:#aaa}
-.r-price .val{font-size:17px;font-weight:700;color:#6c5ce7;margin-top:1px}
-.r-price .val.na{color:#ccc;font-size:13px;font-weight:400}
-.r-meta{font-size:11px;color:#bbb}
+.pv-box{display:none;position:relative}
+.pv-box.show{display:block}
+.pv-box img{max-width:100%;max-height:280px;border-radius:10px;display:block;margin:0 auto}
+.pv-clear{position:absolute;top:8px;right:8px;width:32px;height:32px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.pv-actions{display:flex;justify-content:center;margin-top:12px}
+.btn-search{padding:10px 40px;background:#5a8f6e;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
+.btn-search:disabled{background:#ccc}
+.btn-search:active{background:#4a7d5e}
 
-.loading-bar{text-align:center;padding:40px 20px}
-.spin{width:30px;height:30px;border:3px solid #eee;border-top-color:#6c5ce7;border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 10px}
+/* Results */
+.results-header{padding:16px 16px 8px;font-size:16px;font-weight:700;color:#333;display:none}
+.results-header.show{display:block}
+.result-card{background:#fff;border-radius:14px;margin:0 16px 14px;padding:16px;box-shadow:0 1px 8px rgba(0,0,0,0.04);border:2px solid transparent}
+.result-card.best{border-color:#5a8f6e}
+.result-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:6px;margin-bottom:10px}
+.badge-best{background:#5a8f6e;color:#fff}
+.badge-other{background:#e8e8e4;color:#888}
+.r-title{display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.r-style{font-size:22px;font-weight:700;color:#222}
+.r-series{font-size:13px;color:#999}
+.r-prices{display:flex;gap:8px;margin-bottom:12px}
+.r-ptag{padding:6px 14px;border-radius:8px;font-size:13px;background:#f5faf5;border:1px solid #d0e0d5}
+.r-ptag .plbl{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.r-ptag .pval{font-weight:700;color:#2d5a3d;font-size:16px}
+.r-ptag .pval.na{color:#ccc;font-size:13px;font-weight:400}
+.r-thumbs{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px}
+.r-thumbs::-webkit-scrollbar{height:0}
+.r-thumbs img{width:64px;height:80px;object-fit:cover;border-radius:6px;border:2px solid transparent;cursor:pointer;flex-shrink:0}
+.r-thumbs img:hover{border-color:#5a8f6e}
+
+/* Loading */
+.ld-bar{text-align:center;padding:32px 20px;display:none}
+.ld-bar.show{display:block}
+.spin{width:28px;height:28px;border:3px solid #e8e8e4;border-top-color:#5a8f6e;border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 8px}
 @keyframes sp{to{transform:rotate(360deg)}}
-.loading-bar p{font-size:13px;color:#aaa}
-
+.ld-bar p{font-size:13px;color:#999}
 .init-box{text-align:center;padding:60px 20px}
-.init-box p{font-size:14px;color:#aaa;margin-top:12px}
+.init-box p{font-size:13px;color:#999;margin-top:10px}
 
 .hidden{display:none!important}
-@media(max-width:420px){.r-img{width:90px;min-height:110px}.r-style{font-size:18px}.r-price .val{font-size:15px}}
+@media(max-width:420px){.r-style{font-size:18px}.r-ptag .pval{font-size:14px}.r-thumbs img{width:56px;height:70px}}
 </style>
 </head>
 <body>
 <div id="loginPage" class="login-page">
   <div class="login-card">
     <h2>Desire Dress</h2>
-    <p>礼服款号搜索</p>
-    <input type="password" id="pwdInput" placeholder="请输入密码" autocomplete="off">
-    <button onclick="doLogin()">进入</button>
+    <p>Upload a photo to find matching styles & prices</p>
+    <input type="password" id="pwdInput" placeholder="Enter password" autocomplete="off">
+    <button onclick="doLogin()">Enter</button>
     <div id="loginError" class="login-error"></div>
   </div>
 </div>
 
 <div id="searchPage" class="search-page">
-  <div class="header">
-    <div class="logo">Desire Dress<span id="statusText">加载中...</span></div>
-    <button class="logout-btn" onclick="doLogout()">退出</button>
+  <a class="logout-link" onclick="doLogout()">Logout</a>
+  <div class="site-header">
+    <h1>Desire Dress</h1>
+    <p>Upload a photo to find matching styles & prices</p>
+    <div id="statusEl" class="site-status loading">Loading...</div>
   </div>
 
-  <div id="initBox" class="init-box hidden"><div class="spin"></div><p id="initP">加载数据中...</p></div>
+  <div id="initBox" class="init-box hidden"><div class="spin"></div><p id="initP">Loading data...</p></div>
 
-  <div id="upSec" class="upload-section">
+  <div id="upWrap" class="upload-wrap">
     <div id="upArea" class="upload-area" onclick="pickFile()">
       <div id="upHint">
         <div class="upload-icon">📷</div>
-        <div class="upload-hint"><b>点击上传</b> / 拍照 / 粘贴图片</div>
+        <div class="upload-txt"><b>Tap to upload</b> or drag & drop</div>
         <div class="upload-btns">
-          <label onclick="event.stopPropagation()">📸 拍照<input type="file" accept="image/*" capture="environment" onchange="onFile(this.files[0])" style="display:none"></label>
-          <label onclick="event.stopPropagation()">🖼️ 相册<input type="file" accept="image/*" onchange="onFile(this.files[0])" style="display:none"></label>
+          <label onclick="event.stopPropagation()">📸 Camera<input type="file" accept="image/*" capture="environment" onchange="onFile(this.files[0])" style="display:none"></label>
+          <label onclick="event.stopPropagation()">🖼️ Album<input type="file" accept="image/*" onchange="onFile(this.files[0])" style="display:none"></label>
         </div>
       </div>
-      <div id="pvBox" class="preview-box">
+      <div id="pvBox" class="pv-box">
         <img id="pvImg">
-        <div class="preview-btns">
-          <button class="btn-re" onclick="event.stopPropagation();clr()">重选</button>
-          <button id="goBtn" class="btn-go" onclick="event.stopPropagation();go()">搜索</button>
-        </div>
+        <button class="pv-clear" onclick="event.stopPropagation();clr()">✕</button>
       </div>
+    </div>
+    <div class="pv-actions" id="pvActions" style="display:none">
+      <button id="goBtn" class="btn-search" onclick="go()">Search</button>
     </div>
   </div>
 
-  <div id="ldBar" class="loading-bar hidden"><div class="spin"></div><p>正在搜索匹配款号...</p></div>
-  <div id="resSec" class="results"></div>
+  <div id="ldBar" class="ld-bar"><div class="spin"></div><p>Searching matching styles...</p></div>
+  <div id="resHead" class="results-header">Matching Styles</div>
+  <div id="resSec"></div>
 </div>
 
 <script>
 let file=null,hasThumb=false;
-async function ck(){try{const r=await fetch('/api/status');const d=await r.json();if(!d.authenticated){sL();return}sS();hasThumb=d.hasThumbnails;if(d.error){st('错误','');} else if(d.ready){st(d.styles+'款','ready');$('initBox').classList.add('hidden');$('upSec').classList.remove('hidden')} else{st('加载中...','');$('initBox').classList.remove('hidden');$('initP').textContent=d.progress||'加载中...';$('upSec').classList.add('hidden');setTimeout(ck,3000)}}catch(e){sL()}}
 function $(id){return document.getElementById(id)}
+
+async function ck(){try{const r=await fetch('/api/status');const d=await r.json();if(!d.authenticated){sL();return}sS();hasThumb=d.hasThumbnails;if(d.error){setSt('Error','loading')}else if(d.ready){setSt('Ready','');$('initBox').classList.add('hidden');$('upWrap').classList.remove('hidden')}else{setSt('Loading...','loading');$('initBox').classList.remove('hidden');$('initP').textContent=d.progress||'Loading...';$('upWrap').classList.add('hidden');setTimeout(ck,3000)}}catch(e){sL()}}
 function sL(){$('loginPage').style.display='flex';$('searchPage').style.display='none'}
 function sS(){$('loginPage').style.display='none';$('searchPage').style.display='block'}
-function st(t){$('statusText').textContent=' · '+t}
-async function doLogin(){const p=$('pwdInput').value;if(!p)return;try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});const d=await r.json();if(d.success)ck();else{$('loginError').textContent=d.error;$('loginError').style.display='block'}}catch(e){$('loginError').textContent='网络错误';$('loginError').style.display='block'}}
+function setSt(t,c){const e=$('statusEl');e.textContent=t;e.className='site-status '+(c||'')}
+
+async function doLogin(){const p=$('pwdInput').value;if(!p)return;try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});const d=await r.json();if(d.success)ck();else{$('loginError').textContent=d.error||'Wrong password';$('loginError').style.display='block'}}catch(e){$('loginError').textContent='Network error';$('loginError').style.display='block'}}
 async function doLogout(){await fetch('/api/logout',{method:'POST'});sL();$('pwdInput').value=''}
 $('pwdInput').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 
 function pickFile(){if(file)return;const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=()=>{if(i.files[0])onFile(i.files[0])};i.click()}
-function onFile(f){if(!f||!f.type.startsWith('image/'))return;file=f;const r=new FileReader();r.onload=e=>{$('pvImg').src=e.target.result;$('upHint').classList.add('hidden');$('pvBox').classList.add('show');$('upArea').classList.add('has-image')};r.readAsDataURL(f)}
-function clr(){file=null;$('pvImg').src='';$('upHint').classList.remove('hidden');$('pvBox').classList.remove('show');$('upArea').classList.remove('has-image');$('resSec').innerHTML=''}
+function onFile(f){if(!f||!f.type.startsWith('image/'))return;file=f;const r=new FileReader();r.onload=e=>{$('pvImg').src=e.target.result;$('upHint').classList.add('hidden');$('pvBox').classList.add('show');$('upArea').classList.add('has-img');$('pvActions').style.display='flex'};r.readAsDataURL(f)}
+function clr(){file=null;$('pvImg').src='';$('upHint').classList.remove('hidden');$('pvBox').classList.remove('show');$('upArea').classList.remove('has-img');$('pvActions').style.display='none';$('resSec').innerHTML='';$('resHead').classList.remove('show')}
 const ua=$('upArea');
 ua.addEventListener('dragover',e=>{e.preventDefault();ua.classList.add('dragover')});
 ua.addEventListener('dragleave',()=>ua.classList.remove('dragover'));
 ua.addEventListener('drop',e=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0])onFile(e.dataTransfer.files[0])});
 document.addEventListener('paste',e=>{for(const i of e.clipboardData.items){if(i.type.startsWith('image/')){onFile(i.getAsFile());break}}});
 
-async function go(){if(!file)return;const b=$('goBtn');b.disabled=true;b.textContent='搜索中...';$('ldBar').classList.remove('hidden');$('resSec').innerHTML='';
-try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('网络错误')}
-finally{b.disabled=false;b.textContent='搜索';$('ldBar').classList.add('hidden')}}
+async function go(){if(!file)return;const b=$('goBtn');b.disabled=true;b.textContent='Searching...';$('ldBar').classList.add('show');$('resSec').innerHTML='';$('resHead').classList.remove('show');
+try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('Network error')}
+finally{b.disabled=false;b.textContent='Search';$('ldBar').classList.remove('show')}}
 
-function show(rs,ht){const c=$('resSec');if(!rs||!rs.length){c.innerHTML='<p style="text-align:center;color:#aaa;padding:30px">未找到匹配</p>';return}
-c.innerHTML=rs.map(r=>{
+function show(rs,ht){
+const c=$('resSec');
+if(!rs||!rs.length){c.innerHTML='<p style="text-align:center;color:#aaa;padding:30px">No matching styles found</p>';return}
+$('resHead').classList.add('show');
+c.innerHTML=rs.map((r,idx)=>{
 const p=r.matchPercent||Math.round((r.score||0)*100);
-const pc=p>=80?'pct-hi':p>=60?'pct-md':'pct-lo';
+const isBest=idx===0;
 const w=r.wholesalePrice!=null?'$'+r.wholesalePrice:null;
 const rt=r.retailPrice!=null?'$'+r.retailPrice:null;
-const th=ht&&r.thumbIndex!=null?`/api/thumb/${r.thumbIndex}`:'';
-return `<div class="result-card"><div class="r-top">
-<div class="r-img">${th?`<img src="${th}" onerror="this.parentElement.innerHTML='<div class=ph>👗</div>'">`:'<div class="ph">👗</div>'}</div>
-<div class="r-body">
-<div class="r-row1"><span class="r-style">${r.style}</span><span class="r-pct ${pc}">${p}%</span></div>
+const tis=(r.thumbIndices||[]).slice(0,6);
+return `<div class="result-card ${isBest?'best':''}">
+<span class="result-badge ${isBest?'badge-best':'badge-other'}">${isBest?'Best Match':'Match'} (${p}%)</span>
+<div class="r-title"><span class="r-style">${r.style}</span><span class="r-series">${r.series||''}</span></div>
 <div class="r-prices">
-<div class="r-price"><div class="lbl">批发价</div><div class="val ${w?'':'na'}">${w||'—'}</div></div>
-<div class="r-price"><div class="lbl">零售价</div><div class="val ${rt?'':'na'}">${rt||'—'}</div></div>
+<div class="r-ptag"><span class="plbl">Wholesale</span> <span class="pval ${w?'':'na'}">${w||'—'}</span></div>
+<div class="r-ptag"><span class="plbl">Retail</span> <span class="pval ${rt?'':'na'}">${rt||'—'}</span></div>
 </div>
-<div class="r-meta">${r.series||''} · ${r.count||0}张图</div>
-</div></div></div>`}).join('')}
+${ht&&tis.length?`<div class="r-thumbs">${tis.map(i=>`<img src="/api/thumb/${i}" onerror="this.style.display='none'">`).join('')}</div>`:''}
+</div>`}).join('')}
 
-function err(m){$('resSec').innerHTML=`<p style="text-align:center;color:#e74c3c;padding:30px;background:#fff;border-radius:18px">${m}</p>`}
+function err(m){$('resSec').innerHTML=`<p style="text-align:center;color:#c0392b;padding:30px;background:#fff;border-radius:14px;margin:0 16px">${m}</p>`}
 ck();
 </script>
 </body>
