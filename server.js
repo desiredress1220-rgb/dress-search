@@ -270,18 +270,18 @@ async function lookupPrice(styleNumber) {
       body: JSON.stringify({
         filter: {
           conjunction: 'and',
-          conditions: [{ field_name: '款号', operator: 'is', value: [styleNumber] }]
+          conditions: [{ field_name: 'ITEM NO', operator: 'is', value: [styleNumber] }]
         },
         page_size: 1
       })
     });
     const data = await resp.json();
-    console.log(`Feishu lookup [${styleNumber}]:`, JSON.stringify(data.data?.items?.[0]?.fields || data).substring(0, 200));
+    console.log(`Feishu lookup [${styleNumber}]:`, JSON.stringify(data.data?.items?.[0]?.fields || data).substring(0, 300));
     if (data.data?.items?.length > 0) {
       const f = data.data.items[0].fields;
       return {
-        wholesale: f['批发价'] ?? f['wholesale_price'] ?? null,
-        retail: f['零售价'] ?? f['retail_price'] ?? null
+        wholesale: f['WHOLESALE PRICE USD'] ?? f['批发价'] ?? null,
+        retail: f['RETAILER PRICE USD'] ?? f['零售价'] ?? null
       };
     }
     return null;
