@@ -196,7 +196,8 @@ function computeStyleAverages(metadata, embeddings) {
       count: n,
       series: group.series,
       sampleImages: group.images,
-      thumbIndex: group.indices[0]  // first image index for thumbnail
+      thumbIndex: group.indices[0],  // first image is usually the main/front view
+      thumbIndices: group.indices.slice(0, 6)  // first 6 images for thumbnail row
     };
     validCount++;
   }
@@ -213,7 +214,12 @@ async function getQueryEmbedding(imageBuffer) {
   const resp = await fetch(url, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ instances: [{ image: { bytesBase64Encoded: base64 } }] })
+    body: JSON.stringify({
+      instances: [{
+        image: { bytesBase64Encoded: base64 },
+        text: 'evening gown formal dress close-up product photo'
+      }]
+    })
   });
   if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
   const data = await resp.json();
@@ -230,7 +236,7 @@ function cosineSim(a, b) {
   return dot / (Math.sqrt(nA) * Math.sqrt(nB));
 }
 
-function searchStyles(queryEmb, topK = 2) {
+function searchStyles(queryEmb, topK = 5) {
   const results = [];
   for (const [style, emb] of Object.entries(styleEmbeddings)) {
     results.push({ style, score: cosineSim(queryEmb, emb), ...styleMetadata[style] });
@@ -364,17 +370,20 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
   try {
     console.log(`Search: ${req.file.originalname} (${Math.round(req.file.size/1024)}KB)`);
     const queryEmb = await getQueryEmbedding(req.file.buffer);
-    const results = searchStyles(queryEmb, 2);
+    const results = searchStyles(queryEmb, 5);
 
-    for (const r of results) {
+    // Lookup prices in parallel for speed
+    const pricePromises = results.map(r => lookupPrice(r.style));
+    const prices = await Promise.all(pricePromises);
+    results.forEach((r, i) => {
       r.matchPercent = Math.round(r.score * 100);
       r.thumbIndex = r.thumbIndex ?? (r.sampleImages?.[0]?.index ?? null);
-      const price = await lookupPrice(r.style);
-      if (price) {
-        r.wholesalePrice = price.wholesale;
-        r.retailPrice = price.retail;
+      r.thumbIndices = r.thumbIndices || [];
+      if (prices[i]) {
+        r.wholesalePrice = prices[i].wholesale;
+        r.retailPrice = prices[i].retail;
       }
-    }
+    });
 
     console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%)`).join(', ')}`);
     res.json({ results, hasThumbnails: !!thumbnailsFolderId });
