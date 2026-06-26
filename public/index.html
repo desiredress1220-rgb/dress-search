@@ -6,300 +6,86 @@
 <title>Desire Dress - 款号搜索</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-  background: #f5f5f7;
-  color: #1d1d1f;
-  min-height: 100vh;
-}
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #1d1d1f; min-height: 100vh; }
 
-/* Header */
-.header {
-  background: #fff;
-  border-bottom: 1px solid #e5e5e7;
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.header h1 {
-  font-size: 17px;
-  font-weight: 600;
-  color: #1d1d1f;
-}
-.header .status {
-  font-size: 12px;
-  color: #86868b;
-}
-.header .status.ready { color: #34c759; }
-.header .status.error { color: #ff3b30; }
-.logout-btn {
-  background: none;
-  border: none;
-  color: #86868b;
-  font-size: 13px;
-  cursor: pointer;
-  padding: 4px 8px;
-}
+.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.header .status { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+.header .status.ready { opacity: 1; }
+.logout-btn { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 13px; cursor: pointer; padding: 6px 14px; border-radius: 6px; }
 
 /* Login */
-.login-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 20px;
-}
-.login-card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 40px 32px;
-  width: 100%;
-  max-width: 360px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  text-align: center;
-}
-.login-card h2 {
-  font-size: 22px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
-.login-card p {
-  font-size: 14px;
-  color: #86868b;
-  margin-bottom: 24px;
-}
-.login-card input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid #d2d2d7;
-  border-radius: 10px;
-  font-size: 16px;
-  outline: none;
-  transition: border-color 0.2s;
-  -webkit-appearance: none;
-}
-.login-card input:focus { border-color: #0071e3; }
-.login-card button {
-  width: 100%;
-  margin-top: 16px;
-  padding: 12px;
-  background: #0071e3;
-  color: #fff;
-  border: none;
-  border-radius: 10px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.login-card button:active { background: #0062cc; }
-.login-error {
-  color: #ff3b30;
-  font-size: 13px;
-  margin-top: 12px;
-  display: none;
-}
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.login-card { background: #fff; border-radius: 20px; padding: 48px 36px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; }
+.login-card h2 { font-size: 26px; font-weight: 700; margin-bottom: 6px; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.login-card p { font-size: 14px; color: #999; margin-bottom: 28px; }
+.login-card input { width: 100%; padding: 14px 18px; border: 2px solid #e8e8e8; border-radius: 12px; font-size: 16px; outline: none; transition: border-color 0.2s; }
+.login-card input:focus { border-color: #667eea; }
+.login-card button { width: 100%; margin-top: 18px; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.login-error { color: #e74c3c; font-size: 13px; margin-top: 12px; display: none; }
 
-/* Search page */
 .search-page { display: none; }
 
-/* Upload area */
+/* Upload */
 .upload-section { padding: 16px; }
-.upload-area {
-  background: #fff;
-  border: 2px dashed #d2d2d7;
-  border-radius: 16px;
-  padding: 32px 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-  position: relative;
-}
-.upload-area.dragover {
-  border-color: #0071e3;
-  background: #f0f7ff;
-}
-.upload-area.has-image {
-  border-style: solid;
-  border-color: #0071e3;
-  padding: 12px;
-}
-.upload-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-  opacity: 0.6;
-}
-.upload-text {
-  font-size: 15px;
-  color: #86868b;
-  line-height: 1.5;
-}
-.upload-text strong {
-  color: #0071e3;
-  font-weight: 500;
-}
-.upload-buttons {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-top: 16px;
-}
-.upload-btn {
-  padding: 8px 18px;
-  background: #f5f5f7;
-  border: 1px solid #d2d2d7;
-  border-radius: 8px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-.upload-btn:active { background: #e8e8ed; }
-
-/* Preview */
+.upload-area { background: #fff; border: 2px dashed #d0d0d0; border-radius: 16px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s; }
+.upload-area.dragover { border-color: #667eea; background: #f5f0ff; }
+.upload-area.has-image { border-style: solid; border-color: #667eea; padding: 12px; }
+.upload-icon { font-size: 44px; margin-bottom: 10px; }
+.upload-text { font-size: 14px; color: #999; line-height: 1.6; }
+.upload-text strong { color: #667eea; }
+.upload-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.upload-btn { padding: 8px 16px; background: #f5f5f7; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; cursor: pointer; }
 .preview-container { display: none; }
 .preview-container.show { display: block; }
-.preview-img {
-  max-width: 100%;
-  max-height: 260px;
-  border-radius: 10px;
-  display: block;
-  margin: 0 auto 12px;
-}
-.preview-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-}
-.preview-actions button {
-  padding: 10px 24px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-}
-.btn-search {
-  background: #0071e3;
-  color: #fff;
-  flex: 1;
-  max-width: 200px;
-}
-.btn-search:active { background: #0062cc; }
-.btn-search:disabled {
-  background: #d2d2d7;
-  cursor: not-allowed;
-}
-.btn-clear {
-  background: #f5f5f7;
-  color: #1d1d1f;
-  border: 1px solid #d2d2d7 !important;
-}
+.preview-img { max-width: 100%; max-height: 240px; border-radius: 10px; display: block; margin: 0 auto 12px; }
+.preview-actions { display: flex; gap: 10px; justify-content: center; }
+.preview-actions button { padding: 10px 28px; border-radius: 10px; font-size: 15px; font-weight: 500; cursor: pointer; border: none; }
+.btn-search { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; flex: 1; max-width: 200px; }
+.btn-search:disabled { background: #ccc; }
+.btn-clear { background: #f0f0f0; color: #333; border: 1px solid #ddd !important; }
 
 /* Results */
-.results-section {
-  padding: 0 16px 24px;
-}
-.result-card {
-  background: #fff;
-  border-radius: 14px;
-  padding: 20px;
-  margin-bottom: 12px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-}
-.result-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.result-style {
-  font-size: 20px;
-  font-weight: 600;
-  color: #1d1d1f;
-}
-.result-match {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 20px;
-}
+.results-section { padding: 0 16px 24px; }
+.result-card { background: #fff; border-radius: 16px; padding: 0; margin-bottom: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); overflow: hidden; }
+.result-top { display: flex; align-items: stretch; }
+.result-thumb { width: 120px; min-height: 140px; background: #f5f5f7; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.result-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.result-thumb .no-img { font-size: 40px; opacity: 0.3; }
+.result-body { flex: 1; padding: 16px; display: flex; flex-direction: column; justify-content: center; }
+.result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.result-style { font-size: 22px; font-weight: 700; color: #1a1a1a; }
+.result-match { font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 20px; white-space: nowrap; }
 .match-high { background: #d1fae5; color: #065f46; }
-.match-mid  { background: #fef3c7; color: #92400e; }
-.match-low  { background: #fee2e2; color: #991b1b; }
-.result-info {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-.info-item {
-  padding: 10px 12px;
-  background: #f5f5f7;
-  border-radius: 8px;
-}
-.info-label {
-  font-size: 12px;
-  color: #86868b;
-  margin-bottom: 2px;
-}
-.info-value {
-  font-size: 16px;
-  font-weight: 500;
-}
-.result-meta {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #86868b;
-}
+.match-mid { background: #fef3c7; color: #92400e; }
+.match-low { background: #fee2e2; color: #991b1b; }
+.result-prices { display: flex; gap: 8px; margin-bottom: 8px; }
+.price-tag { flex: 1; padding: 8px 10px; background: #faf5ff; border-radius: 8px; border-left: 3px solid #764ba2; }
+.price-label { font-size: 11px; color: #999; }
+.price-value { font-size: 18px; font-weight: 700; color: #764ba2; margin-top: 2px; }
+.price-value.empty { color: #ccc; font-size: 14px; }
+.result-meta { font-size: 12px; color: #aaa; }
 
 /* Loading */
-.searching {
-  text-align: center;
-  padding: 40px 20px;
-}
-.spinner {
-  width: 36px;
-  height: 36px;
-  border: 3px solid #e5e5e7;
-  border-top-color: #0071e3;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin: 0 auto 12px;
-}
+.searching { text-align: center; padding: 36px 20px; }
+.spinner { width: 32px; height: 32px; border: 3px solid #e5e5e7; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
 @keyframes spin { to { transform: rotate(360deg); } }
-.searching-text {
-  font-size: 14px;
-  color: #86868b;
-}
+.searching-text { font-size: 14px; color: #999; }
 
-/* Init loading */
-.init-loading {
-  text-align: center;
-  padding: 60px 20px;
-}
-.init-loading p {
-  font-size: 14px;
-  color: #86868b;
-  margin-top: 12px;
-}
+.init-loading { text-align: center; padding: 60px 20px; }
+.init-loading p { font-size: 14px; color: #999; margin-top: 12px; }
 
-/* Responsive */
-@media (max-width: 420px) {
-  .upload-area { padding: 24px 16px; }
-  .result-card { padding: 16px; }
-}
-
-/* Hidden */
 .hidden { display: none !important; }
+
+@media (max-width: 420px) {
+  .result-thumb { width: 100px; min-height: 120px; }
+  .result-style { font-size: 18px; }
+  .price-value { font-size: 16px; }
+}
 </style>
 </head>
 <body>
 
-<!-- LOGIN PAGE -->
 <div id="loginPage" class="login-page">
   <div class="login-card">
     <h2>Desire Dress</h2>
@@ -310,47 +96,34 @@ body {
   </div>
 </div>
 
-<!-- SEARCH PAGE -->
 <div id="searchPage" class="search-page">
   <div class="header">
     <div>
-      <h1>款号搜索</h1>
-      <span id="statusText" class="status">加载中...</span>
+      <h1>Desire Dress 款号搜索</h1>
+      <div id="statusText" class="status">加载中...</div>
     </div>
     <button class="logout-btn" onclick="doLogout()">退出</button>
   </div>
 
-  <!-- Init loading -->
   <div id="initLoading" class="init-loading hidden">
     <div class="spinner"></div>
     <p id="initProgress">正在加载数据...</p>
   </div>
 
-  <!-- Upload area -->
   <div id="uploadSection" class="upload-section">
     <div id="uploadArea" class="upload-area" onclick="triggerUpload()">
-      <!-- Default state -->
       <div id="uploadPrompt">
         <div class="upload-icon">📷</div>
-        <div class="upload-text">
-          <strong>点击上传</strong> 或拖拽图片到这里<br>
-          支持拍照、相册选取、粘贴
-        </div>
+        <div class="upload-text"><strong>点击上传</strong> 或拖拽图片到这里<br>支持拍照、相册选取、粘贴</div>
         <div class="upload-buttons">
-          <label class="upload-btn" onclick="event.stopPropagation()">
-            📸 拍照
-            <input type="file" accept="image/*" capture="environment" 
-                   onchange="handleFile(this.files[0])" style="display:none">
+          <label class="upload-btn" onclick="event.stopPropagation()">📸 拍照
+            <input type="file" accept="image/*" capture="environment" onchange="handleFile(this.files[0])" style="display:none">
           </label>
-          <label class="upload-btn" onclick="event.stopPropagation()">
-            🖼️ 相册
-            <input type="file" accept="image/*" 
-                   onchange="handleFile(this.files[0])" style="display:none">
+          <label class="upload-btn" onclick="event.stopPropagation()">🖼️ 相册
+            <input type="file" accept="image/*" onchange="handleFile(this.files[0])" style="display:none">
           </label>
         </div>
       </div>
-
-      <!-- Preview state -->
       <div id="previewContainer" class="preview-container">
         <img id="previewImg" class="preview-img">
         <div class="preview-actions">
@@ -361,34 +134,27 @@ body {
     </div>
   </div>
 
-  <!-- Searching state -->
   <div id="searchingState" class="searching hidden">
     <div class="spinner"></div>
     <div class="searching-text">正在搜索匹配款号...</div>
   </div>
 
-  <!-- Results -->
   <div id="resultsSection" class="results-section"></div>
 </div>
 
 <script>
 let currentFile = null;
+let hasThumbnails = false;
 
-// ---- Check auth state on load ----
 async function checkStatus() {
   try {
     const resp = await fetch('/api/status');
     const data = await resp.json();
-
-    if (!data.authenticated) {
-      showLogin();
-      return;
-    }
-
+    if (!data.authenticated) { showLogin(); return; }
     showSearch();
-
+    hasThumbnails = data.hasThumbnails;
     if (data.error) {
-      setStatus(data.error, 'error');
+      setStatus('加载失败: ' + data.error, 'error');
     } else if (data.ready) {
       setStatus(`就绪 · ${data.styles} 个款式`, 'ready');
       document.getElementById('initLoading').classList.add('hidden');
@@ -400,194 +166,97 @@ async function checkStatus() {
       document.getElementById('uploadSection').classList.add('hidden');
       setTimeout(checkStatus, 3000);
     }
-  } catch (e) {
-    showLogin();
-  }
+  } catch (e) { showLogin(); }
 }
 
-function showLogin() {
-  document.getElementById('loginPage').style.display = 'flex';
-  document.getElementById('searchPage').style.display = 'none';
-}
+function showLogin() { document.getElementById('loginPage').style.display = 'flex'; document.getElementById('searchPage').style.display = 'none'; }
+function showSearch() { document.getElementById('loginPage').style.display = 'none'; document.getElementById('searchPage').style.display = 'block'; }
+function setStatus(text, cls) { const el = document.getElementById('statusText'); el.textContent = text; el.className = 'status ' + (cls||''); }
 
-function showSearch() {
-  document.getElementById('loginPage').style.display = 'none';
-  document.getElementById('searchPage').style.display = 'block';
-}
-
-function setStatus(text, cls) {
-  const el = document.getElementById('statusText');
-  el.textContent = text;
-  el.className = 'status ' + (cls || '');
-}
-
-// ---- Login ----
 async function doLogin() {
   const pwd = document.getElementById('pwdInput').value;
   if (!pwd) return;
-
   try {
-    const resp = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password: pwd })
-    });
+    const resp = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password:pwd}) });
     const data = await resp.json();
-    if (data.success) {
-      checkStatus();
-    } else {
-      document.getElementById('loginError').textContent = data.error || '密码错误';
-      document.getElementById('loginError').style.display = 'block';
-    }
-  } catch (e) {
-    document.getElementById('loginError').textContent = '网络错误';
-    document.getElementById('loginError').style.display = 'block';
-  }
+    if (data.success) checkStatus();
+    else { document.getElementById('loginError').textContent = data.error; document.getElementById('loginError').style.display = 'block'; }
+  } catch(e) { document.getElementById('loginError').textContent = '网络错误'; document.getElementById('loginError').style.display = 'block'; }
 }
+async function doLogout() { await fetch('/api/logout',{method:'POST'}); showLogin(); document.getElementById('pwdInput').value=''; }
+document.getElementById('pwdInput').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 
-async function doLogout() {
-  await fetch('/api/logout', { method: 'POST' });
-  showLogin();
-  document.getElementById('pwdInput').value = '';
-}
-
-// Enter key on password
-document.getElementById('pwdInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
-});
-
-// ---- Image handling ----
-function triggerUpload() {
-  if (currentFile) return;
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'image/*';
-  input.onchange = () => { if (input.files[0]) handleFile(input.files[0]); };
-  input.click();
-}
-
+function triggerUpload() { if(currentFile) return; const i=document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=()=>{if(i.files[0]) handleFile(i.files[0]);}; i.click(); }
 function handleFile(file) {
-  if (!file || !file.type.startsWith('image/')) return;
+  if(!file||!file.type.startsWith('image/')) return;
   currentFile = file;
-
-  const reader = new FileReader();
-  reader.onload = e => {
-    document.getElementById('previewImg').src = e.target.result;
-    document.getElementById('uploadPrompt').classList.add('hidden');
-    document.getElementById('previewContainer').classList.add('show');
-    document.getElementById('uploadArea').classList.add('has-image');
-  };
-  reader.readAsDataURL(file);
+  const r = new FileReader();
+  r.onload = e => { document.getElementById('previewImg').src=e.target.result; document.getElementById('uploadPrompt').classList.add('hidden'); document.getElementById('previewContainer').classList.add('show'); document.getElementById('uploadArea').classList.add('has-image'); };
+  r.readAsDataURL(file);
 }
+function clearImage() { currentFile=null; document.getElementById('previewImg').src=''; document.getElementById('uploadPrompt').classList.remove('hidden'); document.getElementById('previewContainer').classList.remove('show'); document.getElementById('uploadArea').classList.remove('has-image'); document.getElementById('resultsSection').innerHTML=''; }
 
-function clearImage() {
-  currentFile = null;
-  document.getElementById('previewImg').src = '';
-  document.getElementById('uploadPrompt').classList.remove('hidden');
-  document.getElementById('previewContainer').classList.remove('show');
-  document.getElementById('uploadArea').classList.remove('has-image');
-  document.getElementById('resultsSection').innerHTML = '';
-}
+const ua = document.getElementById('uploadArea');
+ua.addEventListener('dragover', e=>{e.preventDefault();ua.classList.add('dragover');});
+ua.addEventListener('dragleave', ()=>ua.classList.remove('dragover'));
+ua.addEventListener('drop', e=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);});
+document.addEventListener('paste', e=>{for(const item of e.clipboardData.items){if(item.type.startsWith('image/')){handleFile(item.getAsFile());break;}}});
 
-// Drag & drop
-const uploadArea = document.getElementById('uploadArea');
-uploadArea.addEventListener('dragover', e => {
-  e.preventDefault();
-  uploadArea.classList.add('dragover');
-});
-uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
-uploadArea.addEventListener('drop', e => {
-  e.preventDefault();
-  uploadArea.classList.remove('dragover');
-  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
-});
-
-// Paste
-document.addEventListener('paste', e => {
-  for (const item of e.clipboardData.items) {
-    if (item.type.startsWith('image/')) {
-      handleFile(item.getAsFile());
-      break;
-    }
-  }
-});
-
-// ---- Search ----
 async function doSearch() {
-  if (!currentFile) return;
-
+  if(!currentFile) return;
   const btn = document.getElementById('searchBtn');
-  btn.disabled = true;
-  btn.textContent = '搜索中...';
+  btn.disabled=true; btn.textContent='搜索中...';
   document.getElementById('searchingState').classList.remove('hidden');
-  document.getElementById('resultsSection').innerHTML = '';
-
+  document.getElementById('resultsSection').innerHTML='';
   try {
-    const formData = new FormData();
-    formData.append('image', currentFile);
-
-    const resp = await fetch('/api/search', { method: 'POST', body: formData });
+    const fd = new FormData(); fd.append('image', currentFile);
+    const resp = await fetch('/api/search', {method:'POST', body:fd});
     const data = await resp.json();
-
-    if (data.error) {
-      showError(data.error);
-    } else {
-      showResults(data.results);
-    }
-  } catch (e) {
-    showError('网络错误: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '搜索款号';
-    document.getElementById('searchingState').classList.add('hidden');
-  }
+    if(data.error) showError(data.error); else showResults(data.results, data.hasThumbnails);
+  } catch(e) { showError('网络错误: '+e.message); }
+  finally { btn.disabled=false; btn.textContent='搜索款号'; document.getElementById('searchingState').classList.add('hidden'); }
 }
 
-function showResults(results) {
-  const container = document.getElementById('resultsSection');
+function showResults(results, hasThumb) {
+  const c = document.getElementById('resultsSection');
+  if(!results||results.length===0) { c.innerHTML='<div style="text-align:center;color:#999;padding:30px">未找到匹配款式</div>'; return; }
 
-  if (!results || results.length === 0) {
-    container.innerHTML = '<div class="result-card"><p style="text-align:center;color:#86868b">未找到匹配款式</p></div>';
-    return;
-  }
+  c.innerHTML = results.map(r => {
+    const pct = r.matchPercent || Math.round((r.score||0)*100);
+    const mc = pct>=80?'match-high':pct>=60?'match-mid':'match-low';
+    const wp = r.wholesalePrice != null && r.wholesalePrice !== '-' ? '¥'+r.wholesalePrice : null;
+    const rp = r.retailPrice != null && r.retailPrice !== '-' ? '¥'+r.retailPrice : null;
+    const thumbSrc = hasThumb && r.thumbIndex != null ? `/api/thumb/${r.thumbIndex}` : '';
 
-  container.innerHTML = results.map((r, i) => {
-    const pct = r.matchPercent || Math.round(r.score * 100);
-    const matchClass = pct >= 80 ? 'match-high' : pct >= 60 ? 'match-mid' : 'match-low';
-
-    return `
-      <div class="result-card">
-        <div class="result-header">
-          <span class="result-style">${r.style}</span>
-          <span class="result-match ${matchClass}">${pct}% 匹配</span>
+    return `<div class="result-card">
+      <div class="result-top">
+        <div class="result-thumb">
+          ${thumbSrc ? `<img src="${thumbSrc}" onerror="this.parentElement.innerHTML='<div class=no-img>👗</div>'" alt="${r.style}">` : '<div class="no-img">👗</div>'}
         </div>
-        <div class="result-info">
-          <div class="info-item">
-            <div class="info-label">批发价</div>
-            <div class="info-value">${r.wholesalePrice != null ? '¥' + r.wholesalePrice : '-'}</div>
+        <div class="result-body">
+          <div class="result-header">
+            <span class="result-style">${r.style}</span>
+            <span class="result-match ${mc}">${pct}%</span>
           </div>
-          <div class="info-item">
-            <div class="info-label">零售价</div>
-            <div class="info-value">${r.retailPrice != null ? '¥' + r.retailPrice : '-'}</div>
+          <div class="result-prices">
+            <div class="price-tag">
+              <div class="price-label">批发价</div>
+              <div class="price-value ${wp?'':'empty'}">${wp||'未录入'}</div>
+            </div>
+            <div class="price-tag">
+              <div class="price-label">零售价</div>
+              <div class="price-value ${rp?'':'empty'}">${rp||'未录入'}</div>
+            </div>
           </div>
-        </div>
-        <div class="result-meta">
-          系列: ${r.series || '-'} · 图片数: ${r.count || '-'}
+          <div class="result-meta">系列: ${r.series||'-'} · 图片数: ${r.count||'-'}</div>
         </div>
       </div>
-    `;
+    </div>`;
   }).join('');
 }
 
-function showError(msg) {
-  document.getElementById('resultsSection').innerHTML = `
-    <div class="result-card" style="text-align:center;color:#ff3b30">
-      <p>${msg}</p>
-    </div>
-  `;
-}
+function showError(msg) { document.getElementById('resultsSection').innerHTML=`<div style="text-align:center;color:#e74c3c;padding:30px;background:#fff;border-radius:16px">${msg}</div>`; }
 
-// ---- Init ----
 checkStatus();
 </script>
 </body>
