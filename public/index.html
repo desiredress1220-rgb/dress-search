@@ -5,91 +5,81 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Desire Dress - 款号搜索</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f0f2f5; color: #1d1d1f; min-height: 100vh; }
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:#f8f7ff;color:#333;min-height:100vh}
 
-.header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
-.header h1 { font-size: 18px; font-weight: 600; }
-.header .status { font-size: 12px; opacity: 0.85; margin-top: 2px; }
-.header .status.ready { opacity: 1; }
-.logout-btn { background: rgba(255,255,255,0.2); border: none; color: #fff; font-size: 13px; cursor: pointer; padding: 6px 14px; border-radius: 6px; }
+.header{background:#fff;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #eee;position:sticky;top:0;z-index:100}
+.logo{font-size:16px;font-weight:700;color:#6c5ce7}
+.logo span{font-weight:400;color:#999;font-size:13px;margin-left:8px}
+.logout-btn{background:none;border:1px solid #ddd;color:#999;font-size:12px;cursor:pointer;padding:5px 12px;border-radius:6px}
 
-/* Login */
-.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-.login-card { background: #fff; border-radius: 20px; padding: 48px 36px; width: 100%; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; }
-.login-card h2 { font-size: 26px; font-weight: 700; margin-bottom: 6px; background: linear-gradient(135deg, #667eea, #764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.login-card p { font-size: 14px; color: #999; margin-bottom: 28px; }
-.login-card input { width: 100%; padding: 14px 18px; border: 2px solid #e8e8e8; border-radius: 12px; font-size: 16px; outline: none; transition: border-color 0.2s; }
-.login-card input:focus { border-color: #667eea; }
-.login-card button { width: 100%; margin-top: 18px; padding: 14px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; }
-.login-error { color: #e74c3c; font-size: 13px; margin-top: 12px; display: none; }
+.login-page{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px;background:linear-gradient(160deg,#f8f7ff 0%,#e8e4f8 100%)}
+.login-card{background:#fff;border-radius:24px;padding:48px 36px;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(108,92,231,0.1);text-align:center}
+.login-card h2{font-size:28px;font-weight:700;color:#6c5ce7;margin-bottom:4px}
+.login-card p{font-size:14px;color:#aaa;margin-bottom:32px}
+.login-card input{width:100%;padding:14px 18px;border:2px solid #eee;border-radius:14px;font-size:16px;outline:none;transition:border-color .2s}
+.login-card input:focus{border-color:#6c5ce7}
+.login-card button{width:100%;margin-top:18px;padding:14px;background:#6c5ce7;color:#fff;border:none;border-radius:14px;font-size:16px;font-weight:600;cursor:pointer}
+.login-card button:active{background:#5a4bd1}
+.login-error{color:#e74c3c;font-size:13px;margin-top:12px;display:none}
 
-.search-page { display: none; }
+.search-page{display:none}
 
-/* Upload */
-.upload-section { padding: 16px; }
-.upload-area { background: #fff; border: 2px dashed #d0d0d0; border-radius: 16px; padding: 28px 16px; text-align: center; cursor: pointer; transition: all 0.2s; }
-.upload-area.dragover { border-color: #667eea; background: #f5f0ff; }
-.upload-area.has-image { border-style: solid; border-color: #667eea; padding: 12px; }
-.upload-icon { font-size: 44px; margin-bottom: 10px; }
-.upload-text { font-size: 14px; color: #999; line-height: 1.6; }
-.upload-text strong { color: #667eea; }
-.upload-buttons { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
-.upload-btn { padding: 8px 16px; background: #f5f5f7; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 13px; cursor: pointer; }
-.preview-container { display: none; }
-.preview-container.show { display: block; }
-.preview-img { max-width: 100%; max-height: 240px; border-radius: 10px; display: block; margin: 0 auto 12px; }
-.preview-actions { display: flex; gap: 10px; justify-content: center; }
-.preview-actions button { padding: 10px 28px; border-radius: 10px; font-size: 15px; font-weight: 500; cursor: pointer; border: none; }
-.btn-search { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; flex: 1; max-width: 200px; }
-.btn-search:disabled { background: #ccc; }
-.btn-clear { background: #f0f0f0; color: #333; border: 1px solid #ddd !important; }
+.upload-section{padding:16px 16px 8px}
+.upload-area{background:#fff;border:2px dashed #d5d0f0;border-radius:20px;padding:32px 16px;text-align:center;cursor:pointer;transition:all .2s}
+.upload-area.dragover{border-color:#6c5ce7;background:#f5f3ff}
+.upload-area.has-image{border-style:solid;border-color:#6c5ce7;padding:12px}
+.upload-icon{font-size:48px;margin-bottom:8px}
+.upload-hint{font-size:14px;color:#aaa;line-height:1.6}
+.upload-hint b{color:#6c5ce7;font-weight:500}
+.upload-btns{display:flex;gap:10px;justify-content:center;margin-top:14px}
+.upload-btns label{padding:8px 18px;background:#f5f3ff;border:1px solid #e0daf5;border-radius:10px;font-size:13px;cursor:pointer;color:#6c5ce7}
+.preview-box{display:none}
+.preview-box.show{display:block}
+.preview-box img{max-width:100%;max-height:220px;border-radius:12px;display:block;margin:0 auto 14px}
+.preview-btns{display:flex;gap:10px;justify-content:center}
+.preview-btns button{padding:10px 28px;border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;border:none}
+.btn-go{background:#6c5ce7;color:#fff;flex:1;max-width:180px}
+.btn-go:disabled{background:#ccc}
+.btn-re{background:#f0eef8;color:#6c5ce7}
 
-/* Results */
-.results-section { padding: 0 16px 24px; }
-.result-card { background: #fff; border-radius: 16px; padding: 0; margin-bottom: 14px; box-shadow: 0 2px 12px rgba(0,0,0,0.06); overflow: hidden; }
-.result-top { display: flex; align-items: stretch; }
-.result-thumb { width: 120px; min-height: 140px; background: #f5f5f7; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.result-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.result-thumb .no-img { font-size: 40px; opacity: 0.3; }
-.result-body { flex: 1; padding: 16px; display: flex; flex-direction: column; justify-content: center; }
-.result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.result-style { font-size: 22px; font-weight: 700; color: #1a1a1a; }
-.result-match { font-size: 13px; font-weight: 700; padding: 4px 12px; border-radius: 20px; white-space: nowrap; }
-.match-high { background: #d1fae5; color: #065f46; }
-.match-mid { background: #fef3c7; color: #92400e; }
-.match-low { background: #fee2e2; color: #991b1b; }
-.result-prices { display: flex; gap: 8px; margin-bottom: 8px; }
-.price-tag { flex: 1; padding: 8px 10px; background: #faf5ff; border-radius: 8px; border-left: 3px solid #764ba2; }
-.price-label { font-size: 11px; color: #999; }
-.price-value { font-size: 18px; font-weight: 700; color: #764ba2; margin-top: 2px; }
-.price-value.empty { color: #ccc; font-size: 14px; }
-.result-meta { font-size: 12px; color: #aaa; }
+.results{padding:8px 16px 24px}
+.result-card{background:#fff;border-radius:18px;margin-bottom:12px;overflow:hidden;box-shadow:0 2px 16px rgba(108,92,231,0.06)}
+.r-top{display:flex}
+.r-img{width:110px;min-height:130px;background:#f5f3ff;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.r-img img{width:100%;height:100%;object-fit:cover}
+.r-img .ph{font-size:36px;opacity:.25}
+.r-body{flex:1;padding:14px 16px;display:flex;flex-direction:column;justify-content:center}
+.r-row1{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.r-style{font-size:22px;font-weight:700;color:#2d2d2d}
+.r-pct{font-size:13px;font-weight:700;padding:3px 10px;border-radius:20px;white-space:nowrap}
+.pct-hi{background:#d4edda;color:#155724}
+.pct-md{background:#fff3cd;color:#856404}
+.pct-lo{background:#f8d7da;color:#721c24}
+.r-prices{display:flex;gap:8px;margin-bottom:6px}
+.r-price{flex:1;background:#f8f7ff;border-radius:10px;padding:8px 10px;position:relative;border-left:3px solid #6c5ce7}
+.r-price .lbl{font-size:11px;color:#aaa}
+.r-price .val{font-size:17px;font-weight:700;color:#6c5ce7;margin-top:1px}
+.r-price .val.na{color:#ccc;font-size:13px;font-weight:400}
+.r-meta{font-size:11px;color:#bbb}
 
-/* Loading */
-.searching { text-align: center; padding: 36px 20px; }
-.spinner { width: 32px; height: 32px; border: 3px solid #e5e5e7; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.searching-text { font-size: 14px; color: #999; }
+.loading-bar{text-align:center;padding:40px 20px}
+.spin{width:30px;height:30px;border:3px solid #eee;border-top-color:#6c5ce7;border-radius:50%;animation:sp .7s linear infinite;margin:0 auto 10px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.loading-bar p{font-size:13px;color:#aaa}
 
-.init-loading { text-align: center; padding: 60px 20px; }
-.init-loading p { font-size: 14px; color: #999; margin-top: 12px; }
+.init-box{text-align:center;padding:60px 20px}
+.init-box p{font-size:14px;color:#aaa;margin-top:12px}
 
-.hidden { display: none !important; }
-
-@media (max-width: 420px) {
-  .result-thumb { width: 100px; min-height: 120px; }
-  .result-style { font-size: 18px; }
-  .price-value { font-size: 16px; }
-}
+.hidden{display:none!important}
+@media(max-width:420px){.r-img{width:90px;min-height:110px}.r-style{font-size:18px}.r-price .val{font-size:15px}}
 </style>
 </head>
 <body>
-
 <div id="loginPage" class="login-page">
   <div class="login-card">
     <h2>Desire Dress</h2>
-    <p>礼服款号搜索系统</p>
+    <p>礼服款号搜索</p>
     <input type="password" id="pwdInput" placeholder="请输入密码" autocomplete="off">
     <button onclick="doLogin()">进入</button>
     <div id="loginError" class="login-error"></div>
@@ -98,166 +88,80 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC'
 
 <div id="searchPage" class="search-page">
   <div class="header">
-    <div>
-      <h1>Desire Dress 款号搜索</h1>
-      <div id="statusText" class="status">加载中...</div>
-    </div>
+    <div class="logo">Desire Dress<span id="statusText">加载中...</span></div>
     <button class="logout-btn" onclick="doLogout()">退出</button>
   </div>
 
-  <div id="initLoading" class="init-loading hidden">
-    <div class="spinner"></div>
-    <p id="initProgress">正在加载数据...</p>
-  </div>
+  <div id="initBox" class="init-box hidden"><div class="spin"></div><p id="initP">加载数据中...</p></div>
 
-  <div id="uploadSection" class="upload-section">
-    <div id="uploadArea" class="upload-area" onclick="triggerUpload()">
-      <div id="uploadPrompt">
+  <div id="upSec" class="upload-section">
+    <div id="upArea" class="upload-area" onclick="pickFile()">
+      <div id="upHint">
         <div class="upload-icon">📷</div>
-        <div class="upload-text"><strong>点击上传</strong> 或拖拽图片到这里<br>支持拍照、相册选取、粘贴</div>
-        <div class="upload-buttons">
-          <label class="upload-btn" onclick="event.stopPropagation()">📸 拍照
-            <input type="file" accept="image/*" capture="environment" onchange="handleFile(this.files[0])" style="display:none">
-          </label>
-          <label class="upload-btn" onclick="event.stopPropagation()">🖼️ 相册
-            <input type="file" accept="image/*" onchange="handleFile(this.files[0])" style="display:none">
-          </label>
+        <div class="upload-hint"><b>点击上传</b> / 拍照 / 粘贴图片</div>
+        <div class="upload-btns">
+          <label onclick="event.stopPropagation()">📸 拍照<input type="file" accept="image/*" capture="environment" onchange="onFile(this.files[0])" style="display:none"></label>
+          <label onclick="event.stopPropagation()">🖼️ 相册<input type="file" accept="image/*" onchange="onFile(this.files[0])" style="display:none"></label>
         </div>
       </div>
-      <div id="previewContainer" class="preview-container">
-        <img id="previewImg" class="preview-img">
-        <div class="preview-actions">
-          <button class="btn-clear" onclick="event.stopPropagation(); clearImage()">重选</button>
-          <button id="searchBtn" class="btn-search" onclick="event.stopPropagation(); doSearch()">搜索款号</button>
+      <div id="pvBox" class="preview-box">
+        <img id="pvImg">
+        <div class="preview-btns">
+          <button class="btn-re" onclick="event.stopPropagation();clr()">重选</button>
+          <button id="goBtn" class="btn-go" onclick="event.stopPropagation();go()">搜索</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div id="searchingState" class="searching hidden">
-    <div class="spinner"></div>
-    <div class="searching-text">正在搜索匹配款号...</div>
-  </div>
-
-  <div id="resultsSection" class="results-section"></div>
+  <div id="ldBar" class="loading-bar hidden"><div class="spin"></div><p>正在搜索匹配款号...</p></div>
+  <div id="resSec" class="results"></div>
 </div>
 
 <script>
-let currentFile = null;
-let hasThumbnails = false;
+let file=null,hasThumb=false;
+async function ck(){try{const r=await fetch('/api/status');const d=await r.json();if(!d.authenticated){sL();return}sS();hasThumb=d.hasThumbnails;if(d.error){st('错误','');} else if(d.ready){st(d.styles+'款','ready');$('initBox').classList.add('hidden');$('upSec').classList.remove('hidden')} else{st('加载中...','');$('initBox').classList.remove('hidden');$('initP').textContent=d.progress||'加载中...';$('upSec').classList.add('hidden');setTimeout(ck,3000)}}catch(e){sL()}}
+function $(id){return document.getElementById(id)}
+function sL(){$('loginPage').style.display='flex';$('searchPage').style.display='none'}
+function sS(){$('loginPage').style.display='none';$('searchPage').style.display='block'}
+function st(t){$('statusText').textContent=' · '+t}
+async function doLogin(){const p=$('pwdInput').value;if(!p)return;try{const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})});const d=await r.json();if(d.success)ck();else{$('loginError').textContent=d.error;$('loginError').style.display='block'}}catch(e){$('loginError').textContent='网络错误';$('loginError').style.display='block'}}
+async function doLogout(){await fetch('/api/logout',{method:'POST'});sL();$('pwdInput').value=''}
+$('pwdInput').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 
-async function checkStatus() {
-  try {
-    const resp = await fetch('/api/status');
-    const data = await resp.json();
-    if (!data.authenticated) { showLogin(); return; }
-    showSearch();
-    hasThumbnails = data.hasThumbnails;
-    if (data.error) {
-      setStatus('加载失败: ' + data.error, 'error');
-    } else if (data.ready) {
-      setStatus(`就绪 · ${data.styles} 个款式`, 'ready');
-      document.getElementById('initLoading').classList.add('hidden');
-      document.getElementById('uploadSection').classList.remove('hidden');
-    } else {
-      setStatus('加载中...', '');
-      document.getElementById('initLoading').classList.remove('hidden');
-      document.getElementById('initProgress').textContent = data.progress || '正在加载数据...';
-      document.getElementById('uploadSection').classList.add('hidden');
-      setTimeout(checkStatus, 3000);
-    }
-  } catch (e) { showLogin(); }
-}
+function pickFile(){if(file)return;const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=()=>{if(i.files[0])onFile(i.files[0])};i.click()}
+function onFile(f){if(!f||!f.type.startsWith('image/'))return;file=f;const r=new FileReader();r.onload=e=>{$('pvImg').src=e.target.result;$('upHint').classList.add('hidden');$('pvBox').classList.add('show');$('upArea').classList.add('has-image')};r.readAsDataURL(f)}
+function clr(){file=null;$('pvImg').src='';$('upHint').classList.remove('hidden');$('pvBox').classList.remove('show');$('upArea').classList.remove('has-image');$('resSec').innerHTML=''}
+const ua=$('upArea');
+ua.addEventListener('dragover',e=>{e.preventDefault();ua.classList.add('dragover')});
+ua.addEventListener('dragleave',()=>ua.classList.remove('dragover'));
+ua.addEventListener('drop',e=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0])onFile(e.dataTransfer.files[0])});
+document.addEventListener('paste',e=>{for(const i of e.clipboardData.items){if(i.type.startsWith('image/')){onFile(i.getAsFile());break}}});
 
-function showLogin() { document.getElementById('loginPage').style.display = 'flex'; document.getElementById('searchPage').style.display = 'none'; }
-function showSearch() { document.getElementById('loginPage').style.display = 'none'; document.getElementById('searchPage').style.display = 'block'; }
-function setStatus(text, cls) { const el = document.getElementById('statusText'); el.textContent = text; el.className = 'status ' + (cls||''); }
+async function go(){if(!file)return;const b=$('goBtn');b.disabled=true;b.textContent='搜索中...';$('ldBar').classList.remove('hidden');$('resSec').innerHTML='';
+try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('网络错误')}
+finally{b.disabled=false;b.textContent='搜索';$('ldBar').classList.add('hidden')}}
 
-async function doLogin() {
-  const pwd = document.getElementById('pwdInput').value;
-  if (!pwd) return;
-  try {
-    const resp = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({password:pwd}) });
-    const data = await resp.json();
-    if (data.success) checkStatus();
-    else { document.getElementById('loginError').textContent = data.error; document.getElementById('loginError').style.display = 'block'; }
-  } catch(e) { document.getElementById('loginError').textContent = '网络错误'; document.getElementById('loginError').style.display = 'block'; }
-}
-async function doLogout() { await fetch('/api/logout',{method:'POST'}); showLogin(); document.getElementById('pwdInput').value=''; }
-document.getElementById('pwdInput').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+function show(rs,ht){const c=$('resSec');if(!rs||!rs.length){c.innerHTML='<p style="text-align:center;color:#aaa;padding:30px">未找到匹配</p>';return}
+c.innerHTML=rs.map(r=>{
+const p=r.matchPercent||Math.round((r.score||0)*100);
+const pc=p>=80?'pct-hi':p>=60?'pct-md':'pct-lo';
+const w=r.wholesalePrice!=null?'$'+r.wholesalePrice:null;
+const rt=r.retailPrice!=null?'$'+r.retailPrice:null;
+const th=ht&&r.thumbIndex!=null?`/api/thumb/${r.thumbIndex}`:'';
+return `<div class="result-card"><div class="r-top">
+<div class="r-img">${th?`<img src="${th}" onerror="this.parentElement.innerHTML='<div class=ph>👗</div>'">`:'<div class="ph">👗</div>'}</div>
+<div class="r-body">
+<div class="r-row1"><span class="r-style">${r.style}</span><span class="r-pct ${pc}">${p}%</span></div>
+<div class="r-prices">
+<div class="r-price"><div class="lbl">批发价</div><div class="val ${w?'':'na'}">${w||'—'}</div></div>
+<div class="r-price"><div class="lbl">零售价</div><div class="val ${rt?'':'na'}">${rt||'—'}</div></div>
+</div>
+<div class="r-meta">${r.series||''} · ${r.count||0}张图</div>
+</div></div></div>`}).join('')}
 
-function triggerUpload() { if(currentFile) return; const i=document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=()=>{if(i.files[0]) handleFile(i.files[0]);}; i.click(); }
-function handleFile(file) {
-  if(!file||!file.type.startsWith('image/')) return;
-  currentFile = file;
-  const r = new FileReader();
-  r.onload = e => { document.getElementById('previewImg').src=e.target.result; document.getElementById('uploadPrompt').classList.add('hidden'); document.getElementById('previewContainer').classList.add('show'); document.getElementById('uploadArea').classList.add('has-image'); };
-  r.readAsDataURL(file);
-}
-function clearImage() { currentFile=null; document.getElementById('previewImg').src=''; document.getElementById('uploadPrompt').classList.remove('hidden'); document.getElementById('previewContainer').classList.remove('show'); document.getElementById('uploadArea').classList.remove('has-image'); document.getElementById('resultsSection').innerHTML=''; }
-
-const ua = document.getElementById('uploadArea');
-ua.addEventListener('dragover', e=>{e.preventDefault();ua.classList.add('dragover');});
-ua.addEventListener('dragleave', ()=>ua.classList.remove('dragover'));
-ua.addEventListener('drop', e=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);});
-document.addEventListener('paste', e=>{for(const item of e.clipboardData.items){if(item.type.startsWith('image/')){handleFile(item.getAsFile());break;}}});
-
-async function doSearch() {
-  if(!currentFile) return;
-  const btn = document.getElementById('searchBtn');
-  btn.disabled=true; btn.textContent='搜索中...';
-  document.getElementById('searchingState').classList.remove('hidden');
-  document.getElementById('resultsSection').innerHTML='';
-  try {
-    const fd = new FormData(); fd.append('image', currentFile);
-    const resp = await fetch('/api/search', {method:'POST', body:fd});
-    const data = await resp.json();
-    if(data.error) showError(data.error); else showResults(data.results, data.hasThumbnails);
-  } catch(e) { showError('网络错误: '+e.message); }
-  finally { btn.disabled=false; btn.textContent='搜索款号'; document.getElementById('searchingState').classList.add('hidden'); }
-}
-
-function showResults(results, hasThumb) {
-  const c = document.getElementById('resultsSection');
-  if(!results||results.length===0) { c.innerHTML='<div style="text-align:center;color:#999;padding:30px">未找到匹配款式</div>'; return; }
-
-  c.innerHTML = results.map(r => {
-    const pct = r.matchPercent || Math.round((r.score||0)*100);
-    const mc = pct>=80?'match-high':pct>=60?'match-mid':'match-low';
-    const wp = r.wholesalePrice != null && r.wholesalePrice !== '-' ? '¥'+r.wholesalePrice : null;
-    const rp = r.retailPrice != null && r.retailPrice !== '-' ? '¥'+r.retailPrice : null;
-    const thumbSrc = hasThumb && r.thumbIndex != null ? `/api/thumb/${r.thumbIndex}` : '';
-
-    return `<div class="result-card">
-      <div class="result-top">
-        <div class="result-thumb">
-          ${thumbSrc ? `<img src="${thumbSrc}" onerror="this.parentElement.innerHTML='<div class=no-img>👗</div>'" alt="${r.style}">` : '<div class="no-img">👗</div>'}
-        </div>
-        <div class="result-body">
-          <div class="result-header">
-            <span class="result-style">${r.style}</span>
-            <span class="result-match ${mc}">${pct}%</span>
-          </div>
-          <div class="result-prices">
-            <div class="price-tag">
-              <div class="price-label">批发价</div>
-              <div class="price-value ${wp?'':'empty'}">${wp||'未录入'}</div>
-            </div>
-            <div class="price-tag">
-              <div class="price-label">零售价</div>
-              <div class="price-value ${rp?'':'empty'}">${rp||'未录入'}</div>
-            </div>
-          </div>
-          <div class="result-meta">系列: ${r.series||'-'} · 图片数: ${r.count||'-'}</div>
-        </div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function showError(msg) { document.getElementById('resultsSection').innerHTML=`<div style="text-align:center;color:#e74c3c;padding:30px;background:#fff;border-radius:16px">${msg}</div>`; }
-
-checkStatus();
+function err(m){$('resSec').innerHTML=`<p style="text-align:center;color:#e74c3c;padding:30px;background:#fff;border-radius:18px">${m}</p>`}
+ck();
 </script>
 </body>
 </html>
