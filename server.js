@@ -247,7 +247,10 @@ async function getQueryEmbedding(imageBuffer) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      instances: [{ image: { bytesBase64Encoded: base64 } }]
+      instances: [{
+        image: { bytesBase64Encoded: base64 },
+        text: 'evening gown formal dress close-up product photo'
+      }]
     })
   });
   if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
