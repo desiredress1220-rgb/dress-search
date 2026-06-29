@@ -475,16 +475,17 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
     addedAt: new Date().toISOString()
   };
 
-  metadataList.push(record);
+  const nextMetadata = metadataList.concat(record);
   const nextEmbeddings = new Float32Array(imageEmbeddings.length + embDim);
   nextEmbeddings.set(imageEmbeddings);
   nextEmbeddings.set(embedding, imageEmbeddings.length);
+
+  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
+  await driveUpdateFile(indexFileIds.embeddings, Buffer.from(nextEmbeddings.buffer), 'application/octet-stream');
+
+  metadataList = nextMetadata;
   imageEmbeddings = nextEmbeddings;
-
   computeStyleAverages(metadataList, imageEmbeddings);
-
-  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(metadataList)), 'application/json');
-  await driveUpdateFile(indexFileIds.embeddings, Buffer.from(imageEmbeddings.buffer), 'application/octet-stream');
 
   if (thumbnailsFolderId) {
     try {
