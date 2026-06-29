@@ -244,67 +244,56 @@ async function getQueryEmbedding(imageBuffer) {
 // Search
 // ============================================================
 function searchStyles(queryEmb, topK = 3) {
-  // Search against ALL individual image embeddings
   const numImages = metadataList.length;
-  const imageScores = [];
 
+  // Score all images
+  const scores = new Float32Array(numImages);
   for (let i = 0; i < numImages; i++) {
     const offset = i * embDim;
     if (offset + embDim > allEmbeddings.length) continue;
-
-    // Inline cosine similarity for speed
     let dot = 0, nA = 0, nB = 0;
     for (let d = 0; d < embDim; d++) {
       const a = queryEmb[d], b = allEmbeddings[offset + d];
       dot += a * b; nA += a * a; nB += b * b;
     }
-    const score = dot / (Math.sqrt(nA) * Math.sqrt(nB));
-    imageScores.push({ index: i, score });
+    scores[i] = dot / (Math.sqrt(nA) * Math.sqrt(nB));
   }
 
-  // Sort by score descending
-  imageScores.sort((a, b) => b.score - a.score);
+  // Get top 200 image indices by score
+  const indices = Array.from({length: numImages}, (_, i) => i);
+  indices.sort((a, b) => scores[b] - scores[a]);
+  const top200 = indices.slice(0, 200);
 
-  // Group by style, keep best score per style + collect best matching images
-  const seen = new Set();
-  const styleTopImages = {};  // style -> [best matching indices]
-  const results = [];
-  
-  for (const item of imageScores) {
-    const meta = metadataList[item.index];
+  // Group by style, keep best score and collect top images
+  const styleMap = {};
+  for (const idx of top200) {
+    const meta = metadataList[idx];
     const style = meta.style || meta.style_number || 'unknown';
-    
-    // Collect top matching images per style (for thumbnails)
-    if (!styleTopImages[style]) styleTopImages[style] = [];
-    if (styleTopImages[style].length < 6) styleTopImages[style].push(item.index);
-    
-    if (seen.has(style)) continue;
-    seen.add(style);
-
-    const sm = styleMetadata[style] || {};
-    results.push({
-      style,
-      score: item.score,
-      bestMatchIndex: item.index,
-      bestMatchFile: meta.filename || '',
-      count: sm.count || 0,
-      series: sm.series || '',
-      thumbIndex: item.index,
-      thumbIndices: []  // filled below
-    });
-
-    if (results.length >= topK && styleTopImages[style]?.length >= 6) {
-      // Check all top styles have enough thumbnails
-      let allFull = results.every(r => (styleTopImages[r.style]?.length || 0) >= 6);
-      if (allFull) break;
+    if (!styleMap[style]) {
+      styleMap[style] = { bestScore: scores[idx], bestIndex: idx, bestFile: meta.filename || '', images: [] };
+    }
+    if (styleMap[style].images.length < 6) {
+      styleMap[style].images.push(idx);
     }
   }
-  
-  // Fill thumbIndices with best matching images of each style
-  for (const r of results) {
-    r.thumbIndices = styleTopImages[r.style] || [r.thumbIndex];
-  }
-  return results;
+
+  // Sort styles by best score, take topK
+  const sortedStyles = Object.entries(styleMap)
+    .sort((a, b) => b[1].bestScore - a[1].bestScore)
+    .slice(0, topK);
+
+  return sortedStyles.map(([style, data]) => {
+    const sm = styleMetadata[style] || {};
+    return {
+      style,
+      score: data.bestScore,
+      bestMatchFile: data.bestFile,
+      count: sm.count || 0,
+      series: sm.series || '',
+      thumbIndex: data.bestIndex,
+      thumbIndices: data.images
+    };
+  });
 }
 
 // ============================================================
