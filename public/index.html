@@ -151,8 +151,24 @@ ua.addEventListener('dragleave',()=>ua.classList.remove('dragover'));
 ua.addEventListener('drop',e=>{e.preventDefault();ua.classList.remove('dragover');if(e.dataTransfer.files[0])onFile(e.dataTransfer.files[0])});
 document.addEventListener('paste',e=>{for(const i of e.clipboardData.items){if(i.type.startsWith('image/')){onFile(i.getAsFile());break}}});
 
+async function compressImage(file, maxSize=512) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > maxSize) { h = h * maxSize / w; w = maxSize; } }
+      else { if (h > maxSize) { w = w * maxSize / h; h = maxSize; } }
+      c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      c.toBlob(blob => resolve(new File([blob], 'search.jpg', {type:'image/jpeg'})), 'image/jpeg', 0.85);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 async function go(){if(!file)return;const b=$('goBtn');b.disabled=true;b.textContent='Searching...';$('ldBar').classList.add('show');$('resSec').innerHTML='';$('resHead').classList.remove('show');
-try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('Network error')}
+try{const compressed=await compressImage(file);const fd=new FormData();fd.append('image',compressed);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('Network error')}
 finally{b.disabled=false;b.textContent='Search';$('ldBar').classList.remove('show')}}
 
 function show(rs,ht){
