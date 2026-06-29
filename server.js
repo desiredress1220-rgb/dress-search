@@ -39,7 +39,6 @@ let loadError = null;
 let styleEmbeddings = {};
 let styleMetadata = {};
 let metadataList = [];
-let allEmbeddings = null;      // raw Float32Array of all image embeddings
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
@@ -157,12 +156,10 @@ async function loadDataFromDrive() {
 // Compute style averages
 // ============================================================
 function computeStyleAverages(metadata, embeddings) {
-  loadingProgress = '正在建立搜索索引...';
+  loadingProgress = '正在计算款式平均向量...';
   console.log(loadingProgress);
   metadataList = metadata;
-  allEmbeddings = embeddings;
 
-  // Build style groups for metadata only (no averaging)
   const groups = {};
   for (let i = 0; i < metadata.length; i++) {
     const img = metadata[i];
@@ -173,15 +170,34 @@ function computeStyleAverages(metadata, embeddings) {
     groups[style].indices.push(i);
   }
 
+  let validCount = 0;
   for (const [style, group] of Object.entries(groups)) {
+    const avg = new Float32Array(embDim);
+    let hasData = false;
+    for (const idx of group.indices) {
+      const offset = idx * embDim;
+      if (offset + embDim > embeddings.length) continue;
+      hasData = true;
+      for (let d = 0; d < embDim; d++) avg[d] += embeddings[offset + d];
+    }
+    if (!hasData) continue;
+    const n = group.indices.length;
+    for (let d = 0; d < embDim; d++) avg[d] /= n;
+    let norm = 0;
+    for (let d = 0; d < embDim; d++) norm += avg[d] * avg[d];
+    norm = Math.sqrt(norm);
+    if (norm > 0) for (let d = 0; d < embDim; d++) avg[d] /= norm;
+
+    styleEmbeddings[style] = avg;
     styleMetadata[style] = {
-      count: group.indices.length,
+      count: n,
       series: group.series,
       thumbIndex: group.indices[0],
       thumbIndices: group.indices.slice(0, 6)
     };
+    validCount++;
   }
-  console.log(`Indexed ${metadata.length} images across ${Object.keys(styleMetadata).length} styles`);
+  console.log(`Computed averages for ${validCount} styles`);
 }
 
 // ============================================================
@@ -244,56 +260,20 @@ async function getQueryEmbedding(imageBuffer) {
 // Search
 // ============================================================
 function searchStyles(queryEmb, topK = 3) {
-  const numImages = metadataList.length;
-
-  // Score all images
-  const scores = new Float32Array(numImages);
-  for (let i = 0; i < numImages; i++) {
-    const offset = i * embDim;
-    if (offset + embDim > allEmbeddings.length) continue;
+  const results = [];
+  for (const [style, emb] of Object.entries(styleEmbeddings)) {
     let dot = 0, nA = 0, nB = 0;
-    for (let d = 0; d < embDim; d++) {
-      const a = queryEmb[d], b = allEmbeddings[offset + d];
-      dot += a * b; nA += a * a; nB += b * b;
+    for (let i = 0; i < embDim; i++) {
+      dot += queryEmb[i] * emb[i];
+      nA += queryEmb[i] * queryEmb[i];
+      nB += emb[i] * emb[i];
     }
-    scores[i] = dot / (Math.sqrt(nA) * Math.sqrt(nB));
+    const score = dot / (Math.sqrt(nA) * Math.sqrt(nB));
+    const sm = styleMetadata[style];
+    results.push({ style, score, count: sm.count, series: sm.series, thumbIndex: sm.thumbIndex, thumbIndices: sm.thumbIndices });
   }
-
-  // Get top 200 image indices by score
-  const indices = Array.from({length: numImages}, (_, i) => i);
-  indices.sort((a, b) => scores[b] - scores[a]);
-  const top200 = indices.slice(0, 200);
-
-  // Group by style, keep best score and collect top images
-  const styleMap = {};
-  for (const idx of top200) {
-    const meta = metadataList[idx];
-    const style = meta.style || meta.style_number || 'unknown';
-    if (!styleMap[style]) {
-      styleMap[style] = { bestScore: scores[idx], bestIndex: idx, bestFile: meta.filename || '', images: [] };
-    }
-    if (styleMap[style].images.length < 6) {
-      styleMap[style].images.push(idx);
-    }
-  }
-
-  // Sort styles by best score, take topK
-  const sortedStyles = Object.entries(styleMap)
-    .sort((a, b) => b[1].bestScore - a[1].bestScore)
-    .slice(0, topK);
-
-  return sortedStyles.map(([style, data]) => {
-    const sm = styleMetadata[style] || {};
-    return {
-      style,
-      score: data.bestScore,
-      bestMatchFile: data.bestFile,
-      count: sm.count || 0,
-      series: sm.series || '',
-      thumbIndex: data.bestIndex,
-      thumbIndices: data.images
-    };
-  });
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, topK);
 }
 
 // ============================================================
@@ -434,7 +414,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
       }
     });
 
-    console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%) matched:${r.bestMatchFile}`).join(', ')}`);
+    console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%)`).join(', ')}`);
     res.json({ results, hasThumbnails: !!thumbnailsFolderId });
   } catch (e) {
     console.error('Search error:', e);
@@ -446,7 +426,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
 app.post('/api/reload', async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
-  searchReady = false; styleMetadata = {}; allEmbeddings = null; loadError = null;
+  searchReady = false; styleEmbeddings = {}; styleMetadata = {}; loadError = null;
   try { await loadAndInit(); res.json({ success: true, styles: Object.keys(styleMetadata).length }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
