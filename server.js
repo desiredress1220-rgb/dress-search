@@ -40,7 +40,7 @@ let loadError = null;
 let styleEmbeddings = {};
 let styleMetadata = {};
 let metadataList = [];
-let imageEmbeddings = null;
+let imageEmbeddings = null; // Int8 quantized embeddings kept in memory for per-image search
 let imageNorms = [];
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
@@ -219,7 +219,7 @@ function computeStyleAverages(metadata, embeddings) {
   loadingProgress = '正在计算款式平均向量...';
   console.log(loadingProgress);
   metadataList = metadata;
-  imageEmbeddings = embeddings;
+  imageEmbeddings = new Int8Array(embeddings.length);
   imageNorms = new Float32Array(metadata.length);
 
   const groups = {};
@@ -234,7 +234,13 @@ function computeStyleAverages(metadata, embeddings) {
     const offset = i * embDim;
     let norm = 0;
     if (offset + embDim <= embeddings.length) {
-      for (let d = 0; d < embDim; d++) norm += embeddings[offset + d] * embeddings[offset + d];
+      for (let d = 0; d < embDim; d++) {
+        const value = embeddings[offset + d];
+        const quantized = Math.max(-127, Math.min(127, Math.round(value * 127)));
+        imageEmbeddings[offset + d] = quantized;
+        const restored = quantized / 127;
+        norm += restored * restored;
+      }
     }
     imageNorms[i] = Math.sqrt(norm);
   }
@@ -242,15 +248,15 @@ function computeStyleAverages(metadata, embeddings) {
   let validCount = 0;
   for (const [style, group] of Object.entries(groups)) {
     const avg = new Float32Array(embDim);
-    let hasData = false;
+    let validImages = 0;
     for (const idx of group.indices) {
       const offset = idx * embDim;
       if (offset + embDim > embeddings.length) continue;
-      hasData = true;
+      validImages++;
       for (let d = 0; d < embDim; d++) avg[d] += embeddings[offset + d];
     }
-    if (!hasData) continue;
-    const n = group.indices.length;
+    if (!validImages) continue;
+    const n = validImages;
     for (let d = 0; d < embDim; d++) avg[d] /= n;
     let norm = 0;
     for (let d = 0; d < embDim; d++) norm += avg[d] * avg[d];
@@ -387,7 +393,7 @@ function searchStylesByImages(queryEmb, topK = 5) {
     if (!imageNorm || offset + embDim > imageEmbeddings.length) continue;
 
     let dot = 0;
-    for (let d = 0; d < embDim; d++) dot += queryEmb[d] * imageEmbeddings[offset + d];
+    for (let d = 0; d < embDim; d++) dot += queryEmb[d] * (imageEmbeddings[offset + d] / 127);
     const score = dot / (queryNorm * imageNorm);
     const img = metadataList[idx];
     const style = metadataStyleId(img);
@@ -476,16 +482,18 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
   };
 
   const nextMetadata = metadataList.concat(record);
-  const nextEmbeddings = new Float32Array(imageEmbeddings.length + embDim);
-  nextEmbeddings.set(imageEmbeddings);
-  nextEmbeddings.set(embedding, imageEmbeddings.length);
 
-  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
+  const embResp = await driveDownload(indexFileIds.embeddings);
+  const embBuffer = Buffer.from(await embResp.arrayBuffer());
+  const currentEmbeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, embBuffer.byteLength / 4);
+  const nextEmbeddings = new Float32Array(currentEmbeddings.length + embDim);
+  nextEmbeddings.set(currentEmbeddings);
+  nextEmbeddings.set(embedding, currentEmbeddings.length);
+
   await driveUpdateFile(indexFileIds.embeddings, Buffer.from(nextEmbeddings.buffer), 'application/octet-stream');
+  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
 
-  metadataList = nextMetadata;
-  imageEmbeddings = nextEmbeddings;
-  computeStyleAverages(metadataList, imageEmbeddings);
+  await loadAndInit();
 
   if (thumbnailsFolderId) {
     try {
