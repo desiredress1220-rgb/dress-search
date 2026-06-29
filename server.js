@@ -38,7 +38,8 @@ let loadingProgress = '等待启动...';
 let loadError = null;
 let styleEmbeddings = {};
 let styleMetadata = {};
-let metadataList = [];         // full metadata array
+let metadataList = [];
+let allEmbeddings = null;      // raw Float32Array of all image embeddings
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
@@ -156,52 +157,67 @@ async function loadDataFromDrive() {
 // Compute style averages
 // ============================================================
 function computeStyleAverages(metadata, embeddings) {
-  loadingProgress = '正在计算款式平均向量...';
+  loadingProgress = '正在建立搜索索引...';
   console.log(loadingProgress);
   metadataList = metadata;
+  allEmbeddings = embeddings;
 
+  // Build style groups for metadata only (no averaging)
   const groups = {};
   for (let i = 0; i < metadata.length; i++) {
     const img = metadata[i];
     const style = img.style || img.style_number || 'unknown';
     if (!groups[style]) {
-      groups[style] = { indices: [], series: img.series || '', images: [] };
+      groups[style] = { indices: [], series: img.series || '' };
     }
     groups[style].indices.push(i);
-    if (groups[style].images.length < 3) {
-      groups[style].images.push({ index: i, filename: img.filename || img.name || '' });
-    }
   }
 
-  let validCount = 0;
   for (const [style, group] of Object.entries(groups)) {
-    const avg = new Float32Array(embDim);
-    let hasData = false;
-    for (const idx of group.indices) {
-      const offset = idx * embDim;
-      if (offset + embDim > embeddings.length) continue;
-      hasData = true;
-      for (let d = 0; d < embDim; d++) avg[d] += embeddings[offset + d];
-    }
-    if (!hasData) continue;
-    const n = group.indices.length;
-    for (let d = 0; d < embDim; d++) avg[d] /= n;
-    let norm = 0;
-    for (let d = 0; d < embDim; d++) norm += avg[d] * avg[d];
-    norm = Math.sqrt(norm);
-    if (norm > 0) for (let d = 0; d < embDim; d++) avg[d] /= norm;
-
-    styleEmbeddings[style] = avg;
     styleMetadata[style] = {
-      count: n,
+      count: group.indices.length,
       series: group.series,
-      sampleImages: group.images,
-      thumbIndex: group.indices[0],  // first image is usually the main/front view
-      thumbIndices: group.indices.slice(0, 6)  // first 6 images for thumbnail row
+      thumbIndex: group.indices[0],
+      thumbIndices: group.indices.slice(0, 6)
     };
-    validCount++;
   }
-  console.log(`Computed averages for ${validCount} styles`);
+  console.log(`Indexed ${metadata.length} images across ${Object.keys(styleMetadata).length} styles`);
+}
+
+// ============================================================
+// Gemini — Analyze dress features before embedding
+// ============================================================
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+
+async function analyzeDressWithGemini(imageBuffer) {
+  if (!GEMINI_API_KEY) return 'evening gown formal dress product photo';
+  
+  try {
+    const base64 = imageBuffer.toString('base64');
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { inlineData: { mimeType: 'image/jpeg', data: base64 } },
+              { text: 'Describe this dress in ONE short sentence focusing only on: silhouette (mermaid/A-line/ballgown/sheath), color, neckline, fabric texture, and any embellishments (beading/sequins/lace/feathers). Do NOT mention the model, background, or setting. Reply with only the description, nothing else.' }
+            ]
+          }],
+          generationConfig: { maxOutputTokens: 80, temperature: 0.1 }
+        })
+      }
+    );
+    const data = await resp.json();
+    const desc = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    console.log('Gemini dress analysis:', desc);
+    return desc || 'evening gown formal dress product photo';
+  } catch (e) {
+    console.error('Gemini analysis error:', e.message);
+    return 'evening gown formal dress product photo';
+  }
 }
 
 // ============================================================
@@ -215,10 +231,7 @@ async function getQueryEmbedding(imageBuffer) {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      instances: [{
-        image: { bytesBase64Encoded: base64 },
-        text: 'evening gown formal dress close-up product photo'
-      }]
+      instances: [{ image: { bytesBase64Encoded: base64 } }]
     })
   });
   if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
@@ -230,19 +243,68 @@ async function getQueryEmbedding(imageBuffer) {
 // ============================================================
 // Search
 // ============================================================
-function cosineSim(a, b) {
-  let dot = 0, nA = 0, nB = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i]*b[i]; nA += a[i]*a[i]; nB += b[i]*b[i]; }
-  return dot / (Math.sqrt(nA) * Math.sqrt(nB));
-}
+function searchStyles(queryEmb, topK = 3) {
+  // Search against ALL individual image embeddings
+  const numImages = metadataList.length;
+  const imageScores = [];
 
-function searchStyles(queryEmb, topK = 5) {
-  const results = [];
-  for (const [style, emb] of Object.entries(styleEmbeddings)) {
-    results.push({ style, score: cosineSim(queryEmb, emb), ...styleMetadata[style] });
+  for (let i = 0; i < numImages; i++) {
+    const offset = i * embDim;
+    if (offset + embDim > allEmbeddings.length) continue;
+
+    // Inline cosine similarity for speed
+    let dot = 0, nA = 0, nB = 0;
+    for (let d = 0; d < embDim; d++) {
+      const a = queryEmb[d], b = allEmbeddings[offset + d];
+      dot += a * b; nA += a * a; nB += b * b;
+    }
+    const score = dot / (Math.sqrt(nA) * Math.sqrt(nB));
+    imageScores.push({ index: i, score });
   }
-  results.sort((a, b) => b.score - a.score);
-  return results.slice(0, topK);
+
+  // Sort by score descending
+  imageScores.sort((a, b) => b.score - a.score);
+
+  // Group by style, keep best score per style + collect best matching images
+  const seen = new Set();
+  const styleTopImages = {};  // style -> [best matching indices]
+  const results = [];
+  
+  for (const item of imageScores) {
+    const meta = metadataList[item.index];
+    const style = meta.style || meta.style_number || 'unknown';
+    
+    // Collect top matching images per style (for thumbnails)
+    if (!styleTopImages[style]) styleTopImages[style] = [];
+    if (styleTopImages[style].length < 6) styleTopImages[style].push(item.index);
+    
+    if (seen.has(style)) continue;
+    seen.add(style);
+
+    const sm = styleMetadata[style] || {};
+    results.push({
+      style,
+      score: item.score,
+      bestMatchIndex: item.index,
+      bestMatchFile: meta.filename || '',
+      count: sm.count || 0,
+      series: sm.series || '',
+      thumbIndex: item.index,
+      thumbIndices: []  // filled below
+    });
+
+    if (results.length >= topK && styleTopImages[style]?.length >= 6) {
+      // Check all top styles have enough thumbnails
+      let allFull = results.every(r => (styleTopImages[r.style]?.length || 0) >= 6);
+      if (allFull) break;
+    }
+  }
+  
+  // Fill thumbIndices with best matching images of each style
+  for (const r of results) {
+    r.thumbIndices = styleTopImages[r.style] || [r.thumbIndex];
+  }
+  return results;
 }
 
 // ============================================================
@@ -330,7 +392,7 @@ app.post('/api/logout', (req, res) => { res.clearCookie('auth'); res.json({ succ
 
 app.get('/api/status', (req, res) => {
   const authed = req.cookies?.auth === makeAuthToken(APP_PASSWORD);
-  res.json({ authenticated: authed, ready: searchReady, progress: loadingProgress, error: loadError, styles: Object.keys(styleEmbeddings).length, hasThumbnails: !!thumbnailsFolderId });
+  res.json({ authenticated: authed, ready: searchReady, progress: loadingProgress, error: loadError, styles: Object.keys(styleMetadata).length, hasThumbnails: !!thumbnailsFolderId });
 });
 
 // Thumbnail proxy - downloads from Drive on demand with caching
@@ -370,22 +432,20 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
   try {
     console.log(`Search: ${req.file.originalname} (${Math.round(req.file.size/1024)}KB)`);
     const queryEmb = await getQueryEmbedding(req.file.buffer);
-    const results = searchStyles(queryEmb, 5);
+    const results = searchStyles(queryEmb, 3);
 
     // Lookup prices in parallel for speed
     const pricePromises = results.map(r => lookupPrice(r.style));
     const prices = await Promise.all(pricePromises);
     results.forEach((r, i) => {
       r.matchPercent = Math.round(r.score * 100);
-      r.thumbIndex = r.thumbIndex ?? (r.sampleImages?.[0]?.index ?? null);
-      r.thumbIndices = r.thumbIndices || [];
       if (prices[i]) {
         r.wholesalePrice = prices[i].wholesale;
         r.retailPrice = prices[i].retail;
       }
     });
 
-    console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%)`).join(', ')}`);
+    console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%) matched:${r.bestMatchFile}`).join(', ')}`);
     res.json({ results, hasThumbnails: !!thumbnailsFolderId });
   } catch (e) {
     console.error('Search error:', e);
@@ -397,8 +457,8 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
 app.post('/api/reload', async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
-  searchReady = false; styleEmbeddings = {}; styleMetadata = {}; loadError = null;
-  try { await loadAndInit(); res.json({ success: true, styles: Object.keys(styleEmbeddings).length }); }
+  searchReady = false; styleMetadata = {}; allEmbeddings = null; loadError = null;
+  try { await loadAndInit(); res.json({ success: true, styles: Object.keys(styleMetadata).length }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -410,7 +470,7 @@ async function loadAndInit() {
   computeStyleAverages(metadata, embeddings);
   searchReady = true;
   loadingProgress = '就绪';
-  console.log(`✅ Search engine ready — ${Object.keys(styleEmbeddings).length} styles loaded`);
+  console.log(`✅ Search engine ready — ${Object.keys(styleMetadata).length} styles, ${metadataList.length} images loaded`);
 }
 
 app.listen(PORT, () => {
