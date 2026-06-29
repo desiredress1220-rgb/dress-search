@@ -29,6 +29,7 @@ try {
 
 const BITABLE_APP_TOKEN = 'Uj4ubusyrast2ds8H2ZcacqqnVh';
 const BITABLE_TABLE_ID = 'tblo0edlld8OgL4q';
+const PRICE_CACHE_TTL_MS = 15 * 60 * 1000;
 
 // ============================================================
 // State
@@ -39,9 +40,33 @@ let loadError = null;
 let styleEmbeddings = {};
 let styleMetadata = {};
 let metadataList = [];
+let imageEmbeddings = null;
+let imageNorms = [];
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
+const indexFileIds = { metadata: null, embeddings: null, dims: null };
+
+function textFieldValue(value) {
+  if (value == null) return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(textFieldValue).join('');
+  if (typeof value === 'object') return value.text || value.name || value.value || '';
+  return String(value);
+}
+
+function normalizeStyleId(value) {
+  return textFieldValue(value)
+    .replace(/\.[^.]+$/, '')
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
+function metadataStyleId(img) {
+  return normalizeStyleId(img.style || img.style_number || img.item_no || img.name || 'unknown');
+}
 
 // ============================================================
 // GCP Auth
@@ -54,7 +79,7 @@ async function getAccessToken() {
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: GCP_CREDENTIALS.client_email,
-    scope: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/cloud-platform',
+    scope: 'https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/cloud-platform',
     aud: 'https://oauth2.googleapis.com/token',
     iat: now, exp: now + 3600
   };
@@ -95,6 +120,38 @@ async function driveDownload(fileId) {
   return resp;
 }
 
+async function driveUpdateFile(fileId, bodyBuffer, mimeType) {
+  const token = await getAccessToken();
+  const resp = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': mimeType },
+    body: bodyBuffer
+  });
+  if (!resp.ok) throw new Error(`Drive update failed: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
+async function driveUploadToFolder(folderId, fileName, bodyBuffer, mimeType) {
+  const token = await getAccessToken();
+  const metadata = { name: fileName, parents: [folderId] };
+  const boundary = `dress-search-${Date.now()}`;
+  const delimiter = `--${boundary}\r\n`;
+  const closeDelimiter = `\r\n--${boundary}--`;
+  const multipartBody = Buffer.concat([
+    Buffer.from(delimiter + 'Content-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(metadata) + '\r\n'),
+    Buffer.from(delimiter + `Content-Type: ${mimeType}\r\n\r\n`),
+    bodyBuffer,
+    Buffer.from(closeDelimiter)
+  ]);
+  const resp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body: multipartBody
+  });
+  if (!resp.ok) throw new Error(`Drive upload failed: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
 async function driveSearchFile(folderId, fileName) {
   const token = await getAccessToken();
   const q = encodeURIComponent(`'${folderId}' in parents and name='${fileName}' and trashed=false`);
@@ -121,6 +178,9 @@ async function loadDataFromDrive() {
 
   if (!metaFile) throw new Error('metadata.json not found in Drive folder');
   if (!embFile) throw new Error('embeddings.bin not found in Drive folder');
+  indexFileIds.metadata = metaFile.id;
+  indexFileIds.embeddings = embFile.id;
+  indexFileIds.dims = dimsFile?.id || null;
 
   if (thumbFolder) {
     thumbnailsFolderId = thumbFolder.id;
@@ -159,15 +219,24 @@ function computeStyleAverages(metadata, embeddings) {
   loadingProgress = '正在计算款式平均向量...';
   console.log(loadingProgress);
   metadataList = metadata;
+  imageEmbeddings = embeddings;
+  imageNorms = new Float32Array(metadata.length);
 
   const groups = {};
   for (let i = 0; i < metadata.length; i++) {
     const img = metadata[i];
-    const style = img.style || img.style_number || 'unknown';
+    const style = metadataStyleId(img);
     if (!groups[style]) {
       groups[style] = { indices: [], series: img.series || '' };
     }
     groups[style].indices.push(i);
+
+    const offset = i * embDim;
+    let norm = 0;
+    if (offset + embDim <= embeddings.length) {
+      for (let d = 0; d < embDim; d++) norm += embeddings[offset + d] * embeddings[offset + d];
+    }
+    imageNorms[i] = Math.sqrt(norm);
   }
 
   let validCount = 0;
@@ -204,9 +273,10 @@ function computeStyleAverages(metadata, embeddings) {
 // Gemini — Analyze dress features before embedding
 // ============================================================
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
+const USE_GEMINI_ANALYSIS = process.env.USE_GEMINI_ANALYSIS === 'true';
 
 async function analyzeDressWithGemini(imageBuffer) {
-  if (!GEMINI_API_KEY) return 'evening gown formal dress product photo';
+  if (!USE_GEMINI_ANALYSIS || !GEMINI_API_KEY) return 'evening gown formal dress product photo';
   
   try {
     const base64 = imageBuffer.toString('base64');
@@ -242,6 +312,7 @@ async function analyzeDressWithGemini(imageBuffer) {
 async function getQueryEmbedding(imageBuffer) {
   const token = await getAccessToken();
   const base64 = imageBuffer.toString('base64');
+  const dressText = await analyzeDressWithGemini(imageBuffer);
   const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
   const resp = await fetch(url, {
     method: 'POST',
@@ -249,7 +320,27 @@ async function getQueryEmbedding(imageBuffer) {
     body: JSON.stringify({
       instances: [{
         image: { bytesBase64Encoded: base64 },
-        text: 'evening gown formal dress close-up product photo'
+        text: `${dressText}. Match this dress to mannequin product photos. Ignore the model, face, pose, background, lighting, and scene. Focus on silhouette, neckline, straps, slit, beading, sequins, lace pattern, waist detail, train, and color.`
+      }]
+    })
+  });
+  if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  if (!data.predictions?.[0]?.imageEmbedding) throw new Error('No embedding in response');
+  return new Float32Array(data.predictions[0].imageEmbedding);
+}
+
+async function getIndexEmbedding(imageBuffer) {
+  const token = await getAccessToken();
+  const base64 = imageBuffer.toString('base64');
+  const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      instances: [{
+        image: { bytesBase64Encoded: base64 },
+        text: 'mannequin product photo of an evening gown dress, clear front view, dress details'
       }]
     })
   });
@@ -263,6 +354,10 @@ async function getQueryEmbedding(imageBuffer) {
 // Search
 // ============================================================
 function searchStyles(queryEmb, topK = 3) {
+  if (imageEmbeddings && imageEmbeddings.length && metadataList.length) {
+    return searchStylesByImages(queryEmb, topK);
+  }
+
   const results = [];
   for (const [style, emb] of Object.entries(styleEmbeddings)) {
     let dot = 0, nA = 0, nB = 0;
@@ -279,11 +374,137 @@ function searchStyles(queryEmb, topK = 3) {
   return results.slice(0, topK);
 }
 
+function searchStylesByImages(queryEmb, topK = 5) {
+  let queryNorm = 0;
+  for (let d = 0; d < embDim; d++) queryNorm += queryEmb[d] * queryEmb[d];
+  queryNorm = Math.sqrt(queryNorm);
+  if (!queryNorm) return [];
+
+  const styleScores = new Map();
+  for (let idx = 0; idx < metadataList.length; idx++) {
+    const offset = idx * embDim;
+    const imageNorm = imageNorms[idx];
+    if (!imageNorm || offset + embDim > imageEmbeddings.length) continue;
+
+    let dot = 0;
+    for (let d = 0; d < embDim; d++) dot += queryEmb[d] * imageEmbeddings[offset + d];
+    const score = dot / (queryNorm * imageNorm);
+    const img = metadataList[idx];
+    const style = metadataStyleId(img);
+    const current = styleScores.get(style) || {
+      style,
+      series: img.series || '',
+      count: styleMetadata[style]?.count || 0,
+      scores: [],
+      matches: [],
+      thumbIndex: idx
+    };
+
+    current.scores.push(score);
+    current.matches.push({ idx, score });
+    if (score > (current.bestScore ?? -Infinity)) {
+      current.bestScore = score;
+      current.thumbIndex = idx;
+      if (img.series) current.series = img.series;
+    }
+    styleScores.set(style, current);
+  }
+
+  const results = [];
+  for (const item of styleScores.values()) {
+    item.scores.sort((a, b) => b - a);
+    const topScores = item.scores.slice(0, 3);
+    const topAverage = topScores.reduce((sum, score) => sum + score, 0) / topScores.length;
+    const styleAverageScore = cosine(queryEmb, styleEmbeddings[item.style]);
+    const score = 0.62 * item.bestScore + 0.28 * topAverage + 0.10 * styleAverageScore;
+    results.push({
+      style: item.style,
+      score,
+      count: item.count || item.scores.length,
+      series: item.series,
+      thumbIndex: item.thumbIndex,
+      thumbIndices: bestThumbIndices(item.matches)
+    });
+  }
+
+  results.sort((a, b) => b.score - a.score);
+  return results.slice(0, topK);
+}
+
+function cosine(a, b) {
+  if (!a || !b) return 0;
+  let dot = 0, nA = 0, nB = 0;
+  for (let i = 0; i < embDim; i++) {
+    dot += a[i] * b[i];
+    nA += a[i] * a[i];
+    nB += b[i] * b[i];
+  }
+  return nA && nB ? dot / (Math.sqrt(nA) * Math.sqrt(nB)) : 0;
+}
+
+function bestThumbIndices(matches) {
+  return matches
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map(item => item.idx);
+}
+
+async function addImageToIndex({ imageBuffer, fileName, style, series }) {
+  if (!searchReady || !imageEmbeddings) throw new Error('Search index is not ready');
+  if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('Index file ids are not loaded');
+
+  const normalizedStyle = normalizeStyleId(style || fileName);
+  if (!normalizedStyle) throw new Error('Missing style number');
+
+  const existing = metadataList.find(img =>
+    normalizeStyleId(img.name || img.fileName || '') === normalizeStyleId(fileName) ||
+    (img.driveName && normalizeStyleId(img.driveName) === normalizeStyleId(fileName))
+  );
+  if (existing) return { added: false, reason: 'already_exists', style: normalizedStyle };
+
+  const embedding = await getIndexEmbedding(imageBuffer);
+  if (embedding.length !== embDim) throw new Error(`Unexpected embedding dimension ${embedding.length}, expected ${embDim}`);
+
+  const idx = metadataList.length;
+  const record = {
+    style: normalizedStyle,
+    style_number: normalizedStyle,
+    series: series || '',
+    name: fileName,
+    fileName,
+    addedAt: new Date().toISOString()
+  };
+
+  metadataList.push(record);
+  const nextEmbeddings = new Float32Array(imageEmbeddings.length + embDim);
+  nextEmbeddings.set(imageEmbeddings);
+  nextEmbeddings.set(embedding, imageEmbeddings.length);
+  imageEmbeddings = nextEmbeddings;
+
+  computeStyleAverages(metadataList, imageEmbeddings);
+
+  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(metadataList)), 'application/json');
+  await driveUpdateFile(indexFileIds.embeddings, Buffer.from(imageEmbeddings.buffer), 'application/octet-stream');
+
+  if (thumbnailsFolderId) {
+    try {
+      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+      thumbCache[idx] = imageBuffer;
+    } catch (e) {
+      console.error('Thumbnail upload error:', e.message);
+    }
+  }
+
+  return { added: true, style: normalizedStyle, index: idx, images: metadataList.length };
+}
+
 // ============================================================
 // Feishu Bitable
 // ============================================================
 let feishuToken = null;
 let feishuTokenExpiry = 0;
+let priceCache = new Map();
+let priceCacheLoadedAt = 0;
 
 async function getFeishuToken() {
   if (feishuToken && Date.now() < feishuTokenExpiry) return feishuToken;
@@ -299,7 +520,7 @@ async function getFeishuToken() {
   return feishuToken;
 }
 
-async function lookupPrice(styleNumber) {
+async function lookupPriceDirect(styleNumber) {
   if (!FEISHU_APP_SECRET) return null;
   try {
     const token = await getFeishuToken();
@@ -331,6 +552,66 @@ async function lookupPrice(styleNumber) {
   }
 }
 
+async function lookupPrice(styleNumber) {
+  if (!FEISHU_APP_SECRET) return null;
+  try {
+    await refreshPriceCacheIfNeeded();
+    return priceCache.get(normalizeStyleId(styleNumber)) || null;
+  } catch (e) {
+    console.error('Feishu error:', e.message);
+    return null;
+  }
+}
+
+async function refreshPriceCacheIfNeeded(force = false) {
+  if (!FEISHU_APP_SECRET) return;
+  if (!force && priceCache.size && Date.now() - priceCacheLoadedAt < PRICE_CACHE_TTL_MS) return;
+
+  const token = await getFeishuToken();
+  const nextCache = new Map();
+  let pageToken = '';
+  let loaded = 0;
+  let hasMore = false;
+
+  do {
+    const url = `https://open.feishu.cn/open-apis/bitable/v1/apps/${BITABLE_APP_TOKEN}/tables/${BITABLE_TABLE_ID}/records/search${pageToken ? `?page_token=${encodeURIComponent(pageToken)}` : ''}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        field_names: ['ITEM NO', 'WHOLESALE PRICE USD', 'SHIPPING COST USD', 'TOTAL AMOUNT USD', 'RETAILER PRICE USD', 'COLOR', '系列'],
+        page_size: 500
+      })
+    });
+    const data = await resp.json();
+    if (data.code !== 0) throw new Error(`Feishu records: ${data.msg || data.code}`);
+
+    for (const item of data.data?.items || []) {
+      const f = item.fields || {};
+      const key = normalizeStyleId(f['ITEM NO']);
+      if (!key) continue;
+      if (!nextCache.has(key)) {
+        nextCache.set(key, {
+          wholesale: f['WHOLESALE PRICE USD'] ?? null,
+          retail: f['RETAILER PRICE USD'] ?? null,
+          shipping: f['SHIPPING COST USD'] ?? null,
+          total: f['TOTAL AMOUNT USD'] ?? null,
+          color: textFieldValue(f.COLOR).trim(),
+          series: textFieldValue(f['系列']).trim()
+        });
+      }
+      loaded++;
+    }
+
+    hasMore = !!data.data?.has_more;
+    pageToken = data.data?.page_token || '';
+  } while (hasMore && pageToken);
+
+  priceCache = nextCache;
+  priceCacheLoadedAt = Date.now();
+  console.log(`Loaded ${loaded} Feishu price rows (${priceCache.size} styles)`);
+}
+
 // ============================================================
 // Express
 // ============================================================
@@ -342,6 +623,8 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if ((req.path === '/api/reload' || req.path === '/api/index/add-image') && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -364,7 +647,43 @@ app.post('/api/logout', (req, res) => { res.clearCookie('auth'); res.json({ succ
 
 app.get('/api/status', (req, res) => {
   const authed = req.cookies?.auth === makeAuthToken(APP_PASSWORD);
-  res.json({ authenticated: authed, ready: searchReady, progress: loadingProgress, error: loadError, styles: Object.keys(styleMetadata).length, hasThumbnails: !!thumbnailsFolderId });
+  res.json({
+    authenticated: authed,
+    ready: searchReady,
+    progress: loadingProgress,
+    error: loadError,
+    styles: Object.keys(styleMetadata).length,
+    images: metadataList.length,
+    hasThumbnails: !!thumbnailsFolderId,
+    priceRows: priceCache.size,
+    priceCacheLoadedAt
+  });
+});
+
+app.get('/api/style/:style', (req, res) => {
+  const style = normalizeStyleId(req.params.style);
+  const meta = styleMetadata[style];
+  if (!meta) return res.status(404).json({ found: false, style });
+  res.json({ found: true, style, ...meta });
+});
+
+app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  if (!req.file) return res.status(400).json({ error: 'Missing image file' });
+
+  try {
+    const result = await addImageToIndex({
+      imageBuffer: req.file.buffer,
+      fileName: req.body.fileName || req.file.originalname,
+      style: req.body.style || req.body.styleNumber || req.file.originalname,
+      series: req.body.series || ''
+    });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('Add image index error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Thumbnail proxy - downloads from Drive on demand with caching
@@ -404,7 +723,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
   try {
     console.log(`Search: ${req.file.originalname} (${Math.round(req.file.size/1024)}KB)`);
     const queryEmb = await getQueryEmbedding(req.file.buffer);
-    const results = searchStyles(queryEmb, 3);
+    const results = searchStyles(queryEmb, 5);
 
     // Lookup prices in parallel for speed
     const pricePromises = results.map(r => lookupPrice(r.style));
@@ -429,7 +748,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
 app.post('/api/reload', async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
-  searchReady = false; styleEmbeddings = {}; styleMetadata = {}; loadError = null;
+  searchReady = false; styleEmbeddings = {}; styleMetadata = {}; imageEmbeddings = null; imageNorms = []; loadError = null;
   try { await loadAndInit(); res.json({ success: true, styles: Object.keys(styleMetadata).length }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
