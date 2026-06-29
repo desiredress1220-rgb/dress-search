@@ -401,13 +401,15 @@ function searchStylesByImages(queryEmb, topK = 5) {
       style,
       series: img.series || '',
       count: styleMetadata[style]?.count || 0,
-      scores: [],
-      matches: [],
+      imageCount: 0,
+      topScores: [],
+      topMatches: [],
       thumbIndex: idx
     };
 
-    current.scores.push(score);
-    current.matches.push({ idx, score });
+    current.imageCount++;
+    insertTopScore(current.topScores, score, 3);
+    insertTopMatch(current.topMatches, { idx, score }, 6);
     if (score > (current.bestScore ?? -Infinity)) {
       current.bestScore = score;
       current.thumbIndex = idx;
@@ -418,23 +420,47 @@ function searchStylesByImages(queryEmb, topK = 5) {
 
   const results = [];
   for (const item of styleScores.values()) {
-    item.scores.sort((a, b) => b - a);
-    const topScores = item.scores.slice(0, 3);
-    const topAverage = topScores.reduce((sum, score) => sum + score, 0) / topScores.length;
+    const topAverage = item.topScores.reduce((sum, score) => sum + score, 0) / item.topScores.length;
     const styleAverageScore = cosine(queryEmb, styleEmbeddings[item.style]);
     const score = 0.62 * item.bestScore + 0.28 * topAverage + 0.10 * styleAverageScore;
     results.push({
       style: item.style,
       score,
-      count: item.count || item.scores.length,
+      count: item.count || item.imageCount,
       series: item.series,
       thumbIndex: item.thumbIndex,
-      thumbIndices: bestThumbIndices(item.matches)
+      thumbIndices: item.topMatches.map(match => match.idx)
     });
   }
 
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, topK);
+}
+
+function insertTopScore(scores, score, limit) {
+  let inserted = false;
+  for (let i = 0; i < scores.length; i++) {
+    if (score > scores[i]) {
+      scores.splice(i, 0, score);
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) scores.push(score);
+  if (scores.length > limit) scores.length = limit;
+}
+
+function insertTopMatch(matches, match, limit) {
+  let inserted = false;
+  for (let i = 0; i < matches.length; i++) {
+    if (match.score > matches[i].score) {
+      matches.splice(i, 0, match);
+      inserted = true;
+      break;
+    }
+  }
+  if (!inserted) matches.push(match);
+  if (matches.length > limit) matches.length = limit;
 }
 
 function cosine(a, b) {
@@ -731,12 +757,20 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
 
   try {
     console.log(`Search: ${req.file.originalname} (${Math.round(req.file.size/1024)}KB)`);
+    const timings = {};
+    const startedAt = Date.now();
     const queryEmb = await getQueryEmbedding(req.file.buffer);
-    const results = searchStyles(queryEmb, 5);
+    timings.embeddingMs = Date.now() - startedAt;
+    const topK = Math.max(1, Math.min(50, parseInt(req.query.topK || req.body.topK || '5', 10) || 5));
+    const searchStartedAt = Date.now();
+    const results = searchStyles(queryEmb, topK);
+    timings.rankMs = Date.now() - searchStartedAt;
 
     // Lookup prices in parallel for speed
+    const priceStartedAt = Date.now();
     const pricePromises = results.map(r => lookupPrice(r.style));
     const prices = await Promise.all(pricePromises);
+    timings.priceMs = Date.now() - priceStartedAt;
     results.forEach((r, i) => {
       r.matchPercent = Math.round(r.score * 100);
       if (prices[i]) {
@@ -746,7 +780,8 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     });
 
     console.log(`Results: ${results.map(r => `${r.style}(${r.matchPercent}%)`).join(', ')}`);
-    res.json({ results, hasThumbnails: !!thumbnailsFolderId });
+    timings.totalMs = Date.now() - startedAt;
+    res.json({ results, hasThumbnails: !!thumbnailsFolderId, timings });
   } catch (e) {
     console.error('Search error:', e);
     res.status(500).json({ error: `搜索失败: ${e.message}` });
