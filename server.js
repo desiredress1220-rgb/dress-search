@@ -511,12 +511,10 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
 
   const embResp = await driveDownload(indexFileIds.embeddings);
   const embBuffer = Buffer.from(await embResp.arrayBuffer());
-  const currentEmbeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, embBuffer.byteLength / 4);
-  const nextEmbeddings = new Float32Array(currentEmbeddings.length + embDim);
-  nextEmbeddings.set(currentEmbeddings);
-  nextEmbeddings.set(embedding, currentEmbeddings.length);
+  const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+  const nextEmbeddings = Buffer.concat([embBuffer, embeddingBuffer]);
 
-  await driveUpdateFile(indexFileIds.embeddings, Buffer.from(nextEmbeddings.buffer), 'application/octet-stream');
+  await driveUpdateFile(indexFileIds.embeddings, nextEmbeddings, 'application/octet-stream');
   await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
 
   await loadAndInit();
