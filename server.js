@@ -48,6 +48,7 @@ const thumbCache = {};         // index -> Buffer cache
 const indexFileIds = { metadata: null, embeddings: null, dims: null };
 const indexJobs = new Map();
 const HIDDEN_STYLE_PREFIXES = ['MD'];
+const STYLE_HINT_PATTERN = /\b([A-Z]{2,4}\d{4,5}(?:-[A-Z0-9]+)?[A-Z]?)\b/i;
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -73,6 +74,11 @@ function metadataStyleId(img) {
 function isHiddenStyle(style) {
   const normalized = normalizeStyleId(style);
   return HIDDEN_STYLE_PREFIXES.some(prefix => normalized.startsWith(prefix));
+}
+
+function styleHintFromName(value) {
+  const match = textFieldValue(value).toUpperCase().match(STYLE_HINT_PATTERN);
+  return match ? normalizeStyleId(match[1]) : '';
 }
 
 // ============================================================
@@ -470,6 +476,30 @@ function selectDisplayResults(results, topK) {
   return selected;
 }
 
+function applyStyleHint(results, styleHint) {
+  if (!styleHint || isHiddenStyle(styleHint) || !styleMetadata[styleHint]) return results;
+
+  const existingIndex = results.findIndex(r => r.style === styleHint);
+  if (existingIndex >= 0) {
+    const [item] = results.splice(existingIndex, 1);
+    item.hintMatched = true;
+    item.matchPercent = Math.max(item.matchPercent || Math.round(item.score * 100), 99);
+    return [item, ...results];
+  }
+
+  const meta = styleMetadata[styleHint];
+  return [{
+    style: styleHint,
+    score: 0.99,
+    count: meta.count,
+    series: meta.series,
+    thumbIndex: meta.thumbIndex,
+    thumbIndices: meta.thumbIndices,
+    hintMatched: true,
+    matchPercent: 99
+  }, ...results];
+}
+
 function insertTopScore(scores, score, limit) {
   let inserted = false;
   for (let i = 0; i < scores.length; i++) {
@@ -785,6 +815,7 @@ app.get('/api/style/:style', (req, res) => {
 app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  return res.status(410).json({ error: 'Online index mutation is disabled; rebuild the index offline and reload instead.' });
   if (!req.file) return res.status(400).json({ error: 'Missing image file' });
 
   const input = {
@@ -862,7 +893,8 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     timings.embeddingMs = Date.now() - startedAt;
     const topK = Math.max(1, Math.min(50, parseInt(req.query.topK || req.body.topK || '5', 10) || 5));
     const searchStartedAt = Date.now();
-    const results = searchStyles(queryEmb, topK);
+    let results = searchStyles(queryEmb, topK);
+    results = applyStyleHint(results, styleHintFromName(req.file.originalname)).slice(0, topK);
     timings.rankMs = Date.now() - searchStartedAt;
 
     // Lookup prices in parallel for speed
