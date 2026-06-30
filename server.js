@@ -45,9 +45,12 @@ let imageNorms = [];
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
-const indexFileIds = { metadata: null, embeddings: null, dims: null };
+const indexFileIds = { metadata: null, embeddings: null, dims: null, deltaMetadata: null, deltaEmbeddings: null, tombstones: null };
 const indexJobs = new Map();
 const HIDDEN_STYLE_PREFIXES = ['MD'];
+const DELTA_METADATA_FILE = 'delta_metadata.json';
+const DELTA_EMBEDDINGS_FILE = 'delta_embeddings.bin';
+const TOMBSTONES_FILE = 'index_tombstones.json';
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -171,6 +174,85 @@ async function driveSearchFile(folderId, fileName) {
   return data.files?.[0] || null;
 }
 
+async function readJsonDriveFile(fileId, fallback) {
+  if (!fileId) return fallback;
+  const resp = await driveDownload(fileId);
+  try {
+    return await resp.json();
+  } catch (e) {
+    console.warn(`Failed to parse Drive JSON file ${fileId}:`, e.message);
+    return fallback;
+  }
+}
+
+async function ensureDriveFile(fileName, initialBuffer, mimeType) {
+  let file = await driveSearchFile(DRIVE_FOLDER_ID, fileName);
+  if (!file) {
+    file = await driveUploadToFolder(DRIVE_FOLDER_ID, fileName, initialBuffer, mimeType);
+  }
+  return file.id;
+}
+
+function normalizedRecordKeys(record) {
+  const keys = [];
+  const id = normalizeStyleId(record.driveId || record.oneDriveId || record.id || '');
+  const name = normalizeStyleId(record.driveName || record.name || record.fileName || '');
+  const style = metadataStyleId(record);
+  if (id) keys.push(`id:${id}`);
+  if (name) keys.push(`name:${name}`);
+  if (style) keys.push(`style:${style}`);
+  return keys;
+}
+
+function buildTombstoneSet(tombstones) {
+  const set = new Set();
+  for (const item of Array.isArray(tombstones) ? tombstones : []) {
+    const id = normalizeStyleId(item.driveId || item.oneDriveId || item.id || '');
+    const name = normalizeStyleId(item.driveName || item.name || item.fileName || '');
+    const style = normalizeStyleId(item.style || item.styleNumber || '');
+    if (id) set.add(`id:${id}`);
+    if (name) set.add(`name:${name}`);
+    if (style && item.deleteStyle === true) set.add(`style:${style}`);
+  }
+  return set;
+}
+
+function applyTombstones(metadata, embeddings, tombstones) {
+  const tombstoneSet = buildTombstoneSet(tombstones);
+  if (!tombstoneSet.size) return { metadata, embeddings };
+
+  const keptMetadata = [];
+  const keptVectors = [];
+  for (let i = 0; i < metadata.length; i++) {
+    const record = metadata[i];
+    const deleted = normalizedRecordKeys(record).some(key => tombstoneSet.has(key));
+    if (!deleted) {
+      keptMetadata.push(record);
+      keptVectors.push(i);
+    }
+  }
+
+  if (keptVectors.length === metadata.length) return { metadata, embeddings };
+
+  const nextEmbeddings = new Float32Array(keptVectors.length * embDim);
+  keptVectors.forEach((sourceIdx, targetIdx) => {
+    const sourceOffset = sourceIdx * embDim;
+    const targetOffset = targetIdx * embDim;
+    nextEmbeddings.set(embeddings.subarray(sourceOffset, sourceOffset + embDim), targetOffset);
+  });
+
+  console.log(`Applied tombstones: ${metadata.length - keptMetadata.length} image records hidden`);
+  return { metadata: keptMetadata, embeddings: nextEmbeddings };
+}
+
+function concatFloatEmbeddings(baseEmbeddings, deltaEmbeddings) {
+  if (!deltaEmbeddings || !deltaEmbeddings.length) return baseEmbeddings;
+  const combined = new Float32Array(baseEmbeddings.length + deltaEmbeddings.length);
+  combined.set(baseEmbeddings);
+  combined.set(deltaEmbeddings, baseEmbeddings.length);
+  return combined;
+}
+
 async function loadDataFromDrive() {
   loadingProgress = '正在列出 Google Drive 文件...';
   console.log(loadingProgress);
@@ -181,6 +263,9 @@ async function loadDataFromDrive() {
   const metaFile = find('metadata.json');
   const embFile = find('embeddings.bin');
   const dimsFile = find('embeddings_dims.json');
+  const deltaMetaFile = find(DELTA_METADATA_FILE);
+  const deltaEmbFile = find(DELTA_EMBEDDINGS_FILE);
+  const tombstonesFile = find(TOMBSTONES_FILE);
   const thumbFolder = files.find(f => f.name === 'thumbnails' && f.mimeType === 'application/vnd.google-apps.folder');
 
   if (!metaFile) throw new Error('metadata.json not found in Drive folder');
@@ -188,6 +273,9 @@ async function loadDataFromDrive() {
   indexFileIds.metadata = metaFile.id;
   indexFileIds.embeddings = embFile.id;
   indexFileIds.dims = dimsFile?.id || null;
+  indexFileIds.deltaMetadata = deltaMetaFile?.id || null;
+  indexFileIds.deltaEmbeddings = deltaEmbFile?.id || null;
+  indexFileIds.tombstones = tombstonesFile?.id || null;
 
   if (thumbFolder) {
     thumbnailsFolderId = thumbFolder.id;
@@ -222,12 +310,29 @@ async function loadDataFromDrive() {
     console.warn(`Trimming embeddings.bin from ${embBuffer.byteLength} to ${usableBytes} bytes`);
     embBuffer = embBuffer.subarray(0, usableBytes);
   }
-  const embeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, usableFloatCount);
-  const usableMetadata = metadata.slice(0, Math.min(metadata.length, vectorCount));
+  let embeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, usableFloatCount);
+  let usableMetadata = metadata.slice(0, Math.min(metadata.length, vectorCount));
   if (usableMetadata.length !== metadata.length || usableFloatCount !== floatCount) {
     console.warn(`Index size mismatch: metadata=${metadata.length}, completeVectors=${vectorCount}, usingMetadata=${usableMetadata.length}`);
   }
   console.log(`Loaded ${embeddings.length} float values (${vectorCount} complete vectors)`);
+
+  if (deltaMetaFile && deltaEmbFile) {
+    const deltaMetadata = await readJsonDriveFile(deltaMetaFile.id, []);
+    const deltaEmbResp = await driveDownload(deltaEmbFile.id);
+    let deltaEmbBuffer = Buffer.from(await deltaEmbResp.arrayBuffer());
+    const deltaFloatCount = Math.floor(deltaEmbBuffer.byteLength / 4 / embDim) * embDim;
+    const deltaVectorCount = Math.floor(deltaFloatCount / embDim);
+    if (deltaVectorCount) {
+      const deltaEmbeddings = new Float32Array(deltaEmbBuffer.buffer, deltaEmbBuffer.byteOffset, deltaFloatCount);
+      usableMetadata = usableMetadata.concat(deltaMetadata.slice(0, deltaVectorCount));
+      embeddings = concatFloatEmbeddings(embeddings, deltaEmbeddings);
+      console.log(`Loaded delta index: ${deltaVectorCount} image records`);
+    }
+  }
+
+  const tombstones = tombstonesFile ? await readJsonDriveFile(tombstonesFile.id, []) : [];
+  ({ metadata: usableMetadata, embeddings } = applyTombstones(usableMetadata, embeddings, tombstones));
 
   return { metadata: usableMetadata, embeddings };
 }
@@ -609,6 +714,88 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
   return { added: true, style: normalizedStyle, index: idx, images: metadataList.length };
 }
 
+async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driveId, parentPath }) {
+  if (!searchReady) throw new Error('Search index is not ready');
+
+  const normalizedStyle = normalizeStyleId(style || fileName);
+  const normalizedName = normalizeStyleId(fileName);
+  if (!normalizedStyle) throw new Error('Missing style number');
+
+  const existing = metadataList.find(img => {
+    const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
+    return normalizedName && existingName === normalizedName;
+  });
+  if (existing) return { added: false, reason: 'already_exists', style: normalizedStyle };
+
+  const deltaMetadataId = await ensureDriveFile(DELTA_METADATA_FILE, Buffer.from('[]'), 'application/json');
+  const deltaEmbeddingsId = await ensureDriveFile(DELTA_EMBEDDINGS_FILE, Buffer.alloc(0), 'application/octet-stream');
+  indexFileIds.deltaMetadata = deltaMetadataId;
+  indexFileIds.deltaEmbeddings = deltaEmbeddingsId;
+
+  const deltaMetadata = await readJsonDriveFile(deltaMetadataId, []);
+  const deltaExisting = deltaMetadata.find(img => {
+    const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
+    return normalizedName && existingName === normalizedName;
+  });
+  if (deltaExisting) return { added: false, reason: 'already_exists_in_delta', style: normalizedStyle };
+
+  const embedding = await getIndexEmbedding(imageBuffer);
+  if (embedding.length !== embDim) throw new Error(`Unexpected embedding dimension ${embedding.length}, expected ${embDim}`);
+
+  const record = {
+    style: normalizedStyle,
+    style_number: normalizedStyle,
+    series: series || '',
+    name: fileName,
+    fileName,
+    driveName: fileName,
+    driveId: driveId || '',
+    parentPath: parentPath || '',
+    addedAt: new Date().toISOString(),
+    source: 'onedrive-delta'
+  };
+
+  const embResp = await driveDownload(deltaEmbeddingsId);
+  const embBuffer = Buffer.from(await embResp.arrayBuffer());
+  const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+  await driveUpdateFile(deltaEmbeddingsId, Buffer.concat([embBuffer, embeddingBuffer]), 'application/octet-stream');
+  await driveUpdateFile(deltaMetadataId, Buffer.from(JSON.stringify(deltaMetadata.concat(record))), 'application/json');
+
+  return { added: true, style: normalizedStyle, deltaImages: deltaMetadata.length + 1 };
+}
+
+async function addIndexTombstones(items) {
+  if (!Array.isArray(items)) throw new Error('items must be an array');
+  const tombstonesId = await ensureDriveFile(TOMBSTONES_FILE, Buffer.from('[]'), 'application/json');
+  indexFileIds.tombstones = tombstonesId;
+
+  const existing = await readJsonDriveFile(tombstonesId, []);
+  const seen = new Set(existing.flatMap(normalizedRecordKeys));
+  const added = [];
+
+  for (const item of items) {
+    const normalized = {
+      id: item.id || item.driveId || item.oneDriveId || '',
+      driveId: item.driveId || item.id || '',
+      name: item.name || item.driveName || item.fileName || '',
+      fileName: item.fileName || item.name || '',
+      style: item.style || item.styleNumber || '',
+      reason: item.reason || 'onedrive-delta',
+      deletedAt: new Date().toISOString()
+    };
+    const keys = normalizedRecordKeys(normalized);
+    if (!keys.length || keys.every(key => seen.has(key))) continue;
+    keys.forEach(key => seen.add(key));
+    added.push(normalized);
+  }
+
+  if (added.length) {
+    await driveUpdateFile(tombstonesId, Buffer.from(JSON.stringify(existing.concat(added))), 'application/json');
+  }
+
+  return { added: added.length, total: existing.length + added.length };
+}
+
 // ============================================================
 // Feishu Bitable
 // ============================================================
@@ -741,7 +928,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -791,30 +978,43 @@ app.get('/api/style/:style', (req, res) => {
 app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
-  return res.status(410).json({ error: 'Online index mutation is disabled; rebuild the index offline and reload instead.' });
   if (!req.file) return res.status(400).json({ error: 'Missing image file' });
 
   const input = {
     imageBuffer: req.file.buffer,
     fileName: req.body.fileName || req.file.originalname,
     style: req.body.style || req.body.styleNumber || req.file.originalname,
-    series: req.body.series || ''
+    series: req.body.series || '',
+    driveId: req.body.driveId || req.body.id || '',
+    parentPath: req.body.parentPath || ''
   };
 
   if (req.query.async === '1') {
     const jobId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     indexJobs.set(jobId, { status: 'running', startedAt: new Date().toISOString() });
-    addImageToIndex(input)
+    addImageToDeltaIndex(input)
       .then(result => indexJobs.set(jobId, { status: 'done', finishedAt: new Date().toISOString(), result }))
       .catch(error => indexJobs.set(jobId, { status: 'error', finishedAt: new Date().toISOString(), error: error.message }));
     return res.status(202).json({ accepted: true, jobId });
   }
 
   try {
-    const result = await addImageToIndex(input);
+    const result = await addImageToDeltaIndex(input);
     res.json({ success: true, ...result });
   } catch (e) {
     console.error('Add image index error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/index/tombstone', async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const result = await addIndexTombstones(req.body.items || req.body.deleted || []);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('Tombstone index error:', e);
     res.status(500).json({ error: e.message });
   }
 });
