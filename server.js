@@ -261,23 +261,8 @@ function computeStyleAverages(metadata, embeddings) {
 
   let validCount = 0;
   for (const [style, group] of Object.entries(groups)) {
-    const avg = new Float32Array(embDim);
-    let validImages = 0;
-    for (const idx of group.indices) {
-      const offset = idx * embDim;
-      if (offset + embDim > embeddings.length) continue;
-      validImages++;
-      for (let d = 0; d < embDim; d++) avg[d] += embeddings[offset + d];
-    }
-    if (!validImages) continue;
-    const n = validImages;
-    for (let d = 0; d < embDim; d++) avg[d] /= n;
-    let norm = 0;
-    for (let d = 0; d < embDim; d++) norm += avg[d] * avg[d];
-    norm = Math.sqrt(norm);
-    if (norm > 0) for (let d = 0; d < embDim; d++) avg[d] /= norm;
-
-    styleEmbeddings[style] = avg;
+    const n = group.indices.length;
+    if (!n) continue;
     styleMetadata[style] = {
       count: n,
       series: group.series,
@@ -435,7 +420,7 @@ function searchStylesByImages(queryEmb, topK = 5) {
   const results = [];
   for (const item of styleScores.values()) {
     const topAverage = item.topScores.reduce((sum, score) => sum + score, 0) / item.topScores.length;
-    const styleAverageScore = cosine(queryEmb, styleEmbeddings[item.style]);
+    const styleAverageScore = styleEmbeddings[item.style] ? cosine(queryEmb, styleEmbeddings[item.style]) : topAverage;
     const score = 0.62 * item.bestScore + 0.28 * topAverage + 0.10 * styleAverageScore;
     results.push({
       style: item.style,
