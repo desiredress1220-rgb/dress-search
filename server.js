@@ -500,6 +500,12 @@ function applyStyleHint(results, styleHint) {
   }, ...results];
 }
 
+function filterResultsByPriceCatalog(results) {
+  if (!priceCacheLoadedAt || !priceCache.size) return results;
+  const filtered = results.filter(result => priceCache.has(normalizeStyleId(result.style)));
+  return filtered.length ? filtered : results;
+}
+
 function insertTopScore(scores, score, limit) {
   let inserted = false;
   for (let i = 0; i < scores.length; i++) {
@@ -894,6 +900,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     const topK = Math.max(1, Math.min(50, parseInt(req.query.topK || req.body.topK || '5', 10) || 5));
     const searchStartedAt = Date.now();
     let results = searchStyles(queryEmb, topK);
+    results = filterResultsByPriceCatalog(results);
     results = applyStyleHint(results, styleHintFromName(req.file.originalname)).slice(0, topK);
     timings.rankMs = Date.now() - searchStartedAt;
 
