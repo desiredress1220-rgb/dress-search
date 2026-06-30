@@ -664,7 +664,7 @@ function appendImageToMemory(record, embedding) {
   }
 }
 
-async function addImageToIndex({ imageBuffer, fileName, style, series }) {
+async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, parentPath }) {
   if (!searchReady || !imageEmbeddings) throw new Error('Search index is not ready');
   if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('Index file ids are not loaded');
 
@@ -687,6 +687,9 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
     series: series || '',
     name: fileName,
     fileName,
+    driveName: fileName,
+    driveId: driveId || '',
+    parentPath: parentPath || '',
     addedAt: new Date().toISOString()
   };
 
@@ -727,8 +730,15 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   });
   if (existing) return { added: false, reason: 'already_exists', style: normalizedStyle };
 
-  const deltaMetadataId = await ensureDriveFile(DELTA_METADATA_FILE, Buffer.from('[]'), 'application/json');
-  const deltaEmbeddingsId = await ensureDriveFile(DELTA_EMBEDDINGS_FILE, Buffer.alloc(0), 'application/octet-stream');
+  let deltaMetadataId;
+  let deltaEmbeddingsId;
+  try {
+    deltaMetadataId = await ensureDriveFile(DELTA_METADATA_FILE, Buffer.from('[]'), 'application/json');
+    deltaEmbeddingsId = await ensureDriveFile(DELTA_EMBEDDINGS_FILE, Buffer.alloc(0), 'application/octet-stream');
+  } catch (e) {
+    console.warn('Delta file creation failed; falling back to main index append:', e.message);
+    return addImageToIndex({ imageBuffer, fileName, style, series, driveId, parentPath });
+  }
   indexFileIds.deltaMetadata = deltaMetadataId;
   indexFileIds.deltaEmbeddings = deltaEmbeddingsId;
 
@@ -766,7 +776,15 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
 
 async function addIndexTombstones(items) {
   if (!Array.isArray(items)) throw new Error('items must be an array');
-  const tombstonesId = await ensureDriveFile(TOMBSTONES_FILE, Buffer.from('[]'), 'application/json');
+  if (!items.length) return { added: 0, total: 0 };
+
+  let tombstonesId;
+  try {
+    tombstonesId = await ensureDriveFile(TOMBSTONES_FILE, Buffer.from('[]'), 'application/json');
+  } catch (e) {
+    console.warn('Tombstone file creation failed; falling back to main index compaction:', e.message);
+    return compactMainIndexWithTombstones(items);
+  }
   indexFileIds.tombstones = tombstonesId;
 
   const existing = await readJsonDriveFile(tombstonesId, []);
@@ -794,6 +812,52 @@ async function addIndexTombstones(items) {
   }
 
   return { added: added.length, total: existing.length + added.length };
+}
+
+async function compactMainIndexWithTombstones(items) {
+  if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('Index file ids are not loaded');
+  const tombstoneSet = buildTombstoneSet(items);
+  if (!tombstoneSet.size) return { removed: 0, total: metadataList.length, mode: 'main-index-compact' };
+
+  const metaResp = await driveDownload(indexFileIds.metadata);
+  const metadata = await metaResp.json();
+  const embResp = await driveDownload(indexFileIds.embeddings);
+  let embBuffer = Buffer.from(await embResp.arrayBuffer());
+  let usableBytes = embBuffer.byteLength - (embBuffer.byteLength % 4);
+  let floatCount = usableBytes / 4;
+  const vectorCount = Math.floor(floatCount / embDim);
+  const usableFloatCount = vectorCount * embDim;
+  embBuffer = embBuffer.subarray(0, usableFloatCount * 4);
+  const embeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, usableFloatCount);
+
+  const usableMetadata = metadata.slice(0, Math.min(metadata.length, vectorCount));
+  const keptMetadata = [];
+  const keptVectors = [];
+  for (let i = 0; i < usableMetadata.length; i++) {
+    const record = usableMetadata[i];
+    const deleted = normalizedRecordKeys(record).some(key => tombstoneSet.has(key));
+    if (!deleted) {
+      keptMetadata.push(record);
+      keptVectors.push(i);
+    }
+  }
+
+  const removed = usableMetadata.length - keptMetadata.length;
+  if (!removed) return { removed: 0, total: usableMetadata.length, mode: 'main-index-compact' };
+
+  const nextEmbeddings = Buffer.alloc(keptVectors.length * embDim * 4);
+  keptVectors.forEach((sourceIdx, targetIdx) => {
+    const sourceStart = sourceIdx * embDim;
+    const targetStart = targetIdx * embDim;
+    for (let d = 0; d < embDim; d++) {
+      nextEmbeddings.writeFloatLE(embeddings[sourceStart + d], (targetStart + d) * 4);
+    }
+  });
+
+  await driveUpdateFile(indexFileIds.embeddings, nextEmbeddings, 'application/octet-stream');
+  await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(keptMetadata)), 'application/json');
+
+  return { removed, total: keptMetadata.length, mode: 'main-index-compact' };
 }
 
 // ============================================================
