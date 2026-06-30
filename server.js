@@ -736,6 +736,10 @@ function authCheck(req, res, next) {
 }
 
 app.use(authCheck);
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.post('/api/login', (req, res) => {
