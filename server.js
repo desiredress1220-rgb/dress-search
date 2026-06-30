@@ -936,3 +936,11 @@ app.listen(PORT, () => {
   if (!DRIVE_FOLDER_ID) { loadError = 'Missing DRIVE_FOLDER_ID'; console.error(loadError); return; }
   loadAndInit().catch(e => { loadError = e.message; console.error('Init failed:', e); });
 });
+
+setInterval(() => {
+  if (searchReady) schedulePriceCacheRefreshIfNeeded();
+}, 60 * 1000);
+
+setTimeout(() => {
+  if (searchReady) schedulePriceCacheRefreshIfNeeded(true);
+}, 5 * 1000);
