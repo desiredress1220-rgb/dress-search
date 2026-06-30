@@ -167,8 +167,14 @@ $('resHead').classList.add('show');
 c.innerHTML=rs.map((r,idx)=>{
 const p=r.matchPercent||Math.round((r.score||0)*100);
 const isBest=idx===0;
-const w=r.wholesalePrice!=null?'$'+r.wholesalePrice:null;
-const rt=r.retailPrice!=null?'$'+r.retailPrice:null;
+const fmtPrice=v=>{
+  if(v==null||v==='')return null;
+  if(typeof v==='object')v=v.text||v.name||v.value||'';
+  const m=String(v).match(/-?\d+(?:\.\d+)?/);
+  return m?'$'+m[0]:null;
+};
+const w=fmtPrice(r.wholesalePrice);
+const rt=fmtPrice(r.retailPrice);
 const tis=(r.thumbIndices||[]).slice(0,6);
 return `<div class="result-card ${isBest?'best':''}">
 <span class="result-badge ${isBest?'badge-best':'badge-other'}">${isBest?'Best Match':'Match'} (${p}%)</span>

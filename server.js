@@ -60,6 +60,16 @@ function textFieldValue(value) {
   return String(value);
 }
 
+function priceFieldValue(value) {
+  const raw = textFieldValue(value).trim();
+  if (!raw) return null;
+  const match = raw.match(/-?\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const num = Number(match[0]);
+  if (!Number.isFinite(num)) return null;
+  return Number.isInteger(num) ? String(num) : String(num).replace(/\.?0+$/, '');
+}
+
 function normalizeStyleId(value) {
   return textFieldValue(value)
     .replace(/\.[^.]+$/, '')
@@ -902,8 +912,8 @@ async function lookupPriceDirect(styleNumber) {
     if (data.data?.items?.length > 0) {
       const f = data.data.items[0].fields;
       return {
-        wholesale: f['WHOLESALE PRICE USD'] ?? f['批发价'] ?? null,
-        retail: f['RETAILER PRICE USD'] ?? f['零售价'] ?? null
+        wholesale: priceFieldValue(f['WHOLESALE PRICE USD'] ?? f['批发价']),
+        retail: priceFieldValue(f['RETAILER PRICE USD'] ?? f['零售价'])
       };
     }
     return null;
@@ -958,10 +968,10 @@ async function refreshPriceCacheIfNeeded(force = false) {
       if (!key) continue;
       if (!nextCache.has(key)) {
         nextCache.set(key, {
-          wholesale: f['WHOLESALE PRICE USD'] ?? null,
-          retail: f['RETAILER PRICE USD'] ?? null,
-          shipping: f['SHIPPING COST USD'] ?? null,
-          total: f['TOTAL AMOUNT USD'] ?? null,
+          wholesale: priceFieldValue(f['WHOLESALE PRICE USD']),
+          retail: priceFieldValue(f['RETAILER PRICE USD']),
+          shipping: priceFieldValue(f['SHIPPING COST USD']),
+          total: priceFieldValue(f['TOTAL AMOUNT USD']),
           color: textFieldValue(f.COLOR).trim(),
           series: textFieldValue(f['系列']).trim()
         });
