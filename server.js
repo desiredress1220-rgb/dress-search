@@ -736,8 +736,7 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
     deltaMetadataId = await ensureDriveFile(DELTA_METADATA_FILE, Buffer.from('[]'), 'application/json');
     deltaEmbeddingsId = await ensureDriveFile(DELTA_EMBEDDINGS_FILE, Buffer.alloc(0), 'application/octet-stream');
   } catch (e) {
-    console.warn('Delta file creation failed; falling back to main index append:', e.message);
-    return addImageToIndex({ imageBuffer, fileName, style, series, driveId, parentPath });
+    throw new Error(`Delta index files are missing and cannot be created by the service account. Create ${DELTA_METADATA_FILE} and ${DELTA_EMBEDDINGS_FILE} in the Drive index folder first. ${e.message}`);
   }
   indexFileIds.deltaMetadata = deltaMetadataId;
   indexFileIds.deltaEmbeddings = deltaEmbeddingsId;
@@ -782,8 +781,7 @@ async function addIndexTombstones(items) {
   try {
     tombstonesId = await ensureDriveFile(TOMBSTONES_FILE, Buffer.from('[]'), 'application/json');
   } catch (e) {
-    console.warn('Tombstone file creation failed; falling back to main index compaction:', e.message);
-    return compactMainIndexWithTombstones(items);
+    throw new Error(`Tombstone file is missing and cannot be created by the service account. Create ${TOMBSTONES_FILE} in the Drive index folder first. ${e.message}`);
   }
   indexFileIds.tombstones = tombstonesId;
 
