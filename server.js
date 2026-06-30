@@ -46,6 +46,7 @@ let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
 const indexFileIds = { metadata: null, embeddings: null, dims: null };
+const indexJobs = new Map();
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -481,6 +482,45 @@ function bestThumbIndices(matches) {
     .map(item => item.idx);
 }
 
+function appendImageToMemory(record, embedding) {
+  const idx = metadataList.length;
+  const quantized = new Int8Array(embDim);
+  let norm = 0;
+  for (let d = 0; d < embDim; d++) {
+    const value = embedding[d];
+    const q = Math.max(-127, Math.min(127, Math.round(value * 127)));
+    quantized[d] = q;
+    const restored = q / 127;
+    norm += restored * restored;
+  }
+
+  const nextImageEmbeddings = new Int8Array(imageEmbeddings.length + embDim);
+  nextImageEmbeddings.set(imageEmbeddings);
+  nextImageEmbeddings.set(quantized, imageEmbeddings.length);
+  imageEmbeddings = nextImageEmbeddings;
+
+  const nextImageNorms = new Float32Array(imageNorms.length + 1);
+  nextImageNorms.set(imageNorms);
+  nextImageNorms[idx] = Math.sqrt(norm);
+  imageNorms = nextImageNorms;
+
+  metadataList = metadataList.concat(record);
+
+  const existingMeta = styleMetadata[record.style];
+  if (existingMeta) {
+    existingMeta.count += 1;
+    existingMeta.thumbIndices = [idx].concat(existingMeta.thumbIndices || []).slice(0, 6);
+  } else {
+    styleMetadata[record.style] = {
+      count: 1,
+      series: record.series || '',
+      thumbIndex: idx,
+      thumbIndices: [idx]
+    };
+    styleEmbeddings[record.style] = embedding;
+  }
+}
+
 async function addImageToIndex({ imageBuffer, fileName, style, series }) {
   if (!searchReady || !imageEmbeddings) throw new Error('Search index is not ready');
   if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('Index file ids are not loaded');
@@ -517,7 +557,7 @@ async function addImageToIndex({ imageBuffer, fileName, style, series }) {
   await driveUpdateFile(indexFileIds.embeddings, nextEmbeddings, 'application/octet-stream');
   await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
 
-  await loadAndInit();
+  appendImageToMemory(record, embedding);
 
   if (thumbnailsFolderId) {
     try {
@@ -657,7 +697,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/index/add-image') && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path.startsWith('/api/index/job/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -705,18 +745,37 @@ app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
   if (!req.file) return res.status(400).json({ error: 'Missing image file' });
 
+  const input = {
+    imageBuffer: req.file.buffer,
+    fileName: req.body.fileName || req.file.originalname,
+    style: req.body.style || req.body.styleNumber || req.file.originalname,
+    series: req.body.series || ''
+  };
+
+  if (req.query.async === '1') {
+    const jobId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    indexJobs.set(jobId, { status: 'running', startedAt: new Date().toISOString() });
+    addImageToIndex(input)
+      .then(result => indexJobs.set(jobId, { status: 'done', finishedAt: new Date().toISOString(), result }))
+      .catch(error => indexJobs.set(jobId, { status: 'error', finishedAt: new Date().toISOString(), error: error.message }));
+    return res.status(202).json({ accepted: true, jobId });
+  }
+
   try {
-    const result = await addImageToIndex({
-      imageBuffer: req.file.buffer,
-      fileName: req.body.fileName || req.file.originalname,
-      style: req.body.style || req.body.styleNumber || req.file.originalname,
-      series: req.body.series || ''
-    });
+    const result = await addImageToIndex(input);
     res.json({ success: true, ...result });
   } catch (e) {
     console.error('Add image index error:', e);
     res.status(500).json({ error: e.message });
   }
+});
+
+app.get('/api/index/job/:id', (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  const job = indexJobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json(job);
 });
 
 // Thumbnail proxy - downloads from Drive on demand with caching
