@@ -892,9 +892,23 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
 app.post('/api/reload', async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
-  searchReady = false; styleEmbeddings = {}; styleMetadata = {}; imageEmbeddings = null; imageNorms = []; loadError = null;
-  try { await loadAndInit(); res.json({ success: true, styles: Object.keys(styleMetadata).length }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  searchReady = false;
+  styleEmbeddings = {};
+  styleMetadata = {};
+  metadataList = [];
+  imageEmbeddings = null;
+  imageNorms = [];
+  loadError = null;
+  loadingProgress = 'Reload queued...';
+  res.status(202).json({ accepted: true });
+
+  setImmediate(() => {
+    loadAndInit().catch(e => {
+      loadError = e.message;
+      searchReady = false;
+      console.error('Reload failed:', e);
+    });
+  });
 });
 
 // ============================================================
