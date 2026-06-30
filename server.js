@@ -47,6 +47,7 @@ let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
 const indexFileIds = { metadata: null, embeddings: null, dims: null };
 const indexJobs = new Map();
+const HIDDEN_STYLE_PREFIXES = ['MD'];
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -67,6 +68,11 @@ function normalizeStyleId(value) {
 
 function metadataStyleId(img) {
   return normalizeStyleId(img.style || img.style_number || img.item_no || img.name || 'unknown');
+}
+
+function isHiddenStyle(style) {
+  const normalized = normalizeStyleId(style);
+  return HIDDEN_STYLE_PREFIXES.some(prefix => normalized.startsWith(prefix));
 }
 
 // ============================================================
@@ -367,6 +373,7 @@ function searchStyles(queryEmb, topK = 3) {
 
   const results = [];
   for (const [style, emb] of Object.entries(styleEmbeddings)) {
+    if (isHiddenStyle(style)) continue;
     let dot = 0, nA = 0, nB = 0;
     for (let i = 0; i < embDim; i++) {
       dot += queryEmb[i] * emb[i];
@@ -398,6 +405,7 @@ function searchStylesByImages(queryEmb, topK = 5) {
     const score = dot / (queryNorm * imageNorm);
     const img = metadataList[idx];
     const style = metadataStyleId(img);
+    if (isHiddenStyle(style)) continue;
     const current = styleScores.get(style) || {
       style,
       series: img.series || '',
@@ -727,7 +735,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path.startsWith('/api/index/job/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
