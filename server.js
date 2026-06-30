@@ -615,6 +615,7 @@ let feishuToken = null;
 let feishuTokenExpiry = 0;
 let priceCache = new Map();
 let priceCacheLoadedAt = 0;
+let priceCacheRefreshPromise = null;
 
 async function getFeishuToken() {
   if (feishuToken && Date.now() < feishuTokenExpiry) return feishuToken;
@@ -664,13 +665,18 @@ async function lookupPriceDirect(styleNumber) {
 
 async function lookupPrice(styleNumber) {
   if (!FEISHU_APP_SECRET) return null;
-  try {
-    await refreshPriceCacheIfNeeded();
-    return priceCache.get(normalizeStyleId(styleNumber)) || null;
-  } catch (e) {
-    console.error('Feishu error:', e.message);
-    return null;
-  }
+  schedulePriceCacheRefreshIfNeeded();
+  return priceCache.get(normalizeStyleId(styleNumber)) || null;
+}
+
+function schedulePriceCacheRefreshIfNeeded(force = false) {
+  if (!FEISHU_APP_SECRET) return;
+  if (!force && priceCache.size && Date.now() - priceCacheLoadedAt < PRICE_CACHE_TTL_MS) return;
+  if (priceCacheRefreshPromise) return;
+
+  priceCacheRefreshPromise = refreshPriceCacheIfNeeded(force)
+    .catch(e => console.error('Feishu cache refresh error:', e.message))
+    .finally(() => { priceCacheRefreshPromise = null; });
 }
 
 async function refreshPriceCacheIfNeeded(force = false) {
