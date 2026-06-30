@@ -152,8 +152,10 @@ ua.addEventListener('drop',e=>{e.preventDefault();ua.classList.remove('dragover'
 document.addEventListener('paste',e=>{for(const i of e.clipboardData.items){if(i.type.startsWith('image/')){onFile(i.getAsFile());break}}});
 
 async function go(){if(!file)return;const b=$('goBtn');b.disabled=true;b.textContent='Searching...';$('ldBar').classList.add('show');$('resSec').innerHTML='';$('resHead').classList.remove('show');
-try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err('Network error')}
-finally{b.disabled=false;b.textContent='Search';$('ldBar').classList.remove('show')}}
+const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),30000);
+try{const fd=new FormData();fd.append('image',file);const r=await fetch('/api/search',{method:'POST',body:fd,signal:ctl.signal});const d=await r.json();if(d.error)err(d.error);else show(d.results,d.hasThumbnails)}catch(e){err(e.name==='AbortError'?'Search timed out. Please try again.':'Network error')}
+finally{clearTimeout(timer)}
+b.disabled=false;b.textContent='Search';$('ldBar').classList.remove('show')}
 
 function show(rs,ht){
 const c=$('resSec');

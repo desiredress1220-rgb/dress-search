@@ -321,6 +321,7 @@ async function getQueryEmbedding(imageBuffer) {
   const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
   const resp = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       instances: [{
@@ -341,6 +342,7 @@ async function getIndexEmbedding(imageBuffer) {
   const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
   const resp = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       instances: [{
