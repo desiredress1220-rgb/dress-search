@@ -206,11 +206,24 @@ async function loadDataFromDrive() {
   loadingProgress = `正在下载 embeddings.bin (${Math.round(embFile.size / 1024 / 1024)}MB)...`;
   console.log(loadingProgress);
   const embResp = await driveDownload(embFile.id);
-  const embBuffer = Buffer.from(await embResp.arrayBuffer());
-  const embeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, embBuffer.byteLength / 4);
-  console.log(`Loaded ${embeddings.length} float values (${embeddings.length / embDim} vectors)`);
+  let embBuffer = Buffer.from(await embResp.arrayBuffer());
+  let usableBytes = embBuffer.byteLength - (embBuffer.byteLength % 4);
+  let floatCount = usableBytes / 4;
+  const vectorCount = Math.floor(floatCount / embDim);
+  const usableFloatCount = vectorCount * embDim;
+  usableBytes = usableFloatCount * 4;
+  if (usableBytes !== embBuffer.byteLength) {
+    console.warn(`Trimming embeddings.bin from ${embBuffer.byteLength} to ${usableBytes} bytes`);
+    embBuffer = embBuffer.subarray(0, usableBytes);
+  }
+  const embeddings = new Float32Array(embBuffer.buffer, embBuffer.byteOffset, usableFloatCount);
+  const usableMetadata = metadata.slice(0, Math.min(metadata.length, vectorCount));
+  if (usableMetadata.length !== metadata.length || usableFloatCount !== floatCount) {
+    console.warn(`Index size mismatch: metadata=${metadata.length}, completeVectors=${vectorCount}, usingMetadata=${usableMetadata.length}`);
+  }
+  console.log(`Loaded ${embeddings.length} float values (${vectorCount} complete vectors)`);
 
-  return { metadata, embeddings };
+  return { metadata: usableMetadata, embeddings };
 }
 
 // ============================================================
