@@ -48,7 +48,6 @@ const thumbCache = {};         // index -> Buffer cache
 const indexFileIds = { metadata: null, embeddings: null, dims: null };
 const indexJobs = new Map();
 const HIDDEN_STYLE_PREFIXES = ['MD'];
-const STYLE_HINT_PATTERN = /\b([A-Z]{2,4}\d{4,5}(?:-[A-Z0-9]+)?[A-Z]?)\b/i;
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -74,11 +73,6 @@ function metadataStyleId(img) {
 function isHiddenStyle(style) {
   const normalized = normalizeStyleId(style);
   return HIDDEN_STYLE_PREFIXES.some(prefix => normalized.startsWith(prefix));
-}
-
-function styleHintFromName(value) {
-  const match = textFieldValue(value).toUpperCase().match(STYLE_HINT_PATTERN);
-  return match ? normalizeStyleId(match[1]) : '';
 }
 
 // ============================================================
@@ -474,30 +468,6 @@ function selectDisplayResults(results, topK) {
 
   if (selected.length < topK) selected.push(...overflow.slice(0, topK - selected.length));
   return selected;
-}
-
-function applyStyleHint(results, styleHint) {
-  if (!styleHint || isHiddenStyle(styleHint) || !styleMetadata[styleHint]) return results;
-
-  const existingIndex = results.findIndex(r => r.style === styleHint);
-  if (existingIndex >= 0) {
-    const [item] = results.splice(existingIndex, 1);
-    item.hintMatched = true;
-    item.matchPercent = Math.max(item.matchPercent || Math.round(item.score * 100), 99);
-    return [item, ...results];
-  }
-
-  const meta = styleMetadata[styleHint];
-  return [{
-    style: styleHint,
-    score: 0.99,
-    count: meta.count,
-    series: meta.series,
-    thumbIndex: meta.thumbIndex,
-    thumbIndices: meta.thumbIndices,
-    hintMatched: true,
-    matchPercent: 99
-  }, ...results];
 }
 
 function filterResultsByPriceCatalog(results) {
@@ -901,7 +871,7 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     const searchStartedAt = Date.now();
     let results = searchStyles(queryEmb, topK);
     results = filterResultsByPriceCatalog(results);
-    results = applyStyleHint(results, styleHintFromName(req.file.originalname)).slice(0, topK);
+    results = results.slice(0, topK);
     timings.rankMs = Date.now() - searchStartedAt;
 
     // Lookup prices in parallel for speed
