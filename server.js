@@ -843,7 +843,7 @@ app.get('/api/thumb/:index', async (req, res) => {
 // Search
 app.post('/api/search', upload.single('image'), async (req, res) => {
   if (req.cookies?.auth !== makeAuthToken(APP_PASSWORD)) return res.status(401).json({ error: '请先登录' });
-  if (!searchReady) return res.status(503).json({ error: '数据加载中，请稍候...' });
+  if (!searchReady) return res.status(503).json({ error: '数据加载中，请稍候...', retryAfterMs: 3000 });
   if (!req.file) return res.status(400).json({ error: '请上传图片' });
 
   try {
