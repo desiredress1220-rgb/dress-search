@@ -391,7 +391,7 @@ function searchStyles(queryEmb, topK = 3) {
     results.push({ style, score, count: sm.count, series: sm.series, thumbIndex: sm.thumbIndex, thumbIndices: sm.thumbIndices });
   }
   results.sort((a, b) => b.score - a.score);
-  return results.slice(0, topK);
+  return selectDisplayResults(results, topK);
 }
 
 function searchStylesByImages(queryEmb, topK = 5) {
@@ -448,7 +448,31 @@ function searchStylesByImages(queryEmb, topK = 5) {
   }
 
   results.sort((a, b) => b.score - a.score);
-  return results.slice(0, topK);
+  return selectDisplayResults(results, topK);
+}
+
+function selectDisplayResults(results, topK) {
+  if (topK > 10) return results.slice(0, topK);
+
+  const selected = [];
+  const overflow = [];
+  const seriesCounts = new Map();
+  const maxPerSeries = 2;
+
+  for (const result of results) {
+    const seriesKey = result.series || result.style.replace(/\d.*$/, '');
+    const count = seriesCounts.get(seriesKey) || 0;
+    if (count < maxPerSeries) {
+      selected.push(result);
+      seriesCounts.set(seriesKey, count + 1);
+    } else {
+      overflow.push(result);
+    }
+    if (selected.length >= topK) break;
+  }
+
+  if (selected.length < topK) selected.push(...overflow.slice(0, topK - selected.length));
+  return selected;
 }
 
 function insertTopScore(scores, score, limit) {
