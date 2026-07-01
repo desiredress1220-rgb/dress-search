@@ -79,8 +79,26 @@ function normalizeStyleId(value) {
     .toUpperCase();
 }
 
+function extractStyleId(value) {
+  const normalized = normalizeStyleId(value);
+  const match = normalized.match(/[A-Z]{1,5}\d{3,6}(?:-[A-Z0-9]+)?/);
+  return match ? match[0] : '';
+}
+
+function displaySeriesForStyle(style, fallback = '') {
+  const prefix = extractStyleId(style).match(/^[A-Z]+/)?.[0];
+  if (prefix) return `${prefix}系列`;
+  return fallback || '';
+}
+
+function resolvedStyleId({ style, style_number, item_no, name, fileName, driveName } = {}) {
+  return extractStyleId(name || fileName || driveName) ||
+    extractStyleId(style || style_number || item_no) ||
+    normalizeStyleId(style || style_number || item_no || name || fileName || driveName || 'unknown');
+}
+
 function metadataStyleId(img) {
-  return normalizeStyleId(img.style || img.style_number || img.item_no || img.name || 'unknown');
+  return resolvedStyleId(img);
 }
 
 function isHiddenStyle(style) {
@@ -704,8 +722,9 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
   if (!searchReady || !imageEmbeddings) throw new Error('Search index is not ready');
   if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('Index file ids are not loaded');
 
-  const normalizedStyle = normalizeStyleId(style || fileName);
+  const normalizedStyle = resolvedStyleId({ name: fileName, fileName, driveName: fileName, style });
   if (!normalizedStyle) throw new Error('Missing style number');
+  const resolvedSeries = displaySeriesForStyle(normalizedStyle, series);
 
   const existing = metadataList.find(img =>
     normalizeStyleId(img.name || img.fileName || '') === normalizeStyleId(fileName) ||
@@ -720,7 +739,7 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
   const record = {
     style: normalizedStyle,
     style_number: normalizedStyle,
-    series: series || '',
+    series: resolvedSeries,
     name: fileName,
     fileName,
     driveName: fileName,
@@ -756,9 +775,10 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
 async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driveId, parentPath }) {
   if (!searchReady) throw new Error('Search index is not ready');
 
-  const normalizedStyle = normalizeStyleId(style || fileName);
+  const normalizedStyle = resolvedStyleId({ name: fileName, fileName, driveName: fileName, style });
   const normalizedName = normalizeStyleId(fileName);
   if (!normalizedStyle) throw new Error('Missing style number');
+  const resolvedSeries = displaySeriesForStyle(normalizedStyle, series);
 
   const existing = metadataList.find(img => {
     const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
@@ -790,7 +810,7 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   const record = {
     style: normalizedStyle,
     style_number: normalizedStyle,
-    series: series || '',
+    series: resolvedSeries,
     name: fileName,
     fileName,
     driveName: fileName,
