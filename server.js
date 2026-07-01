@@ -876,6 +876,7 @@ let feishuTokenExpiry = 0;
 let priceCache = new Map();
 let priceCacheLoadedAt = 0;
 let priceCacheRefreshPromise = null;
+let priceCacheError = null;
 
 async function getFeishuToken() {
   if (feishuToken && Date.now() < feishuTokenExpiry) return feishuToken;
@@ -935,7 +936,10 @@ function schedulePriceCacheRefreshIfNeeded(force = false) {
   if (priceCacheRefreshPromise) return;
 
   priceCacheRefreshPromise = refreshPriceCacheIfNeeded(force)
-    .catch(e => console.error('Feishu cache refresh error:', e.message))
+    .catch(e => {
+      priceCacheError = e.message;
+      console.error('Feishu cache refresh error:', e.message);
+    })
     .finally(() => { priceCacheRefreshPromise = null; });
 }
 
@@ -955,7 +959,7 @@ async function refreshPriceCacheIfNeeded(force = false) {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        field_names: ['ITEM NO', 'WHOLESALE PRICE USD', 'SHIPPING COST USD', 'TOTAL AMOUNT USD', 'RETAILER PRICE USD', 'COLOR', '系列'],
+        field_names: ['ITEM NO', 'WHOLESALE PRICE USD', 'RETAILER PRICE USD'],
         page_size: 500
       })
     });
@@ -985,6 +989,7 @@ async function refreshPriceCacheIfNeeded(force = false) {
 
   priceCache = nextCache;
   priceCacheLoadedAt = Date.now();
+  priceCacheError = null;
   console.log(`Loaded ${loaded} Feishu price rows (${priceCache.size} styles)`);
 }
 
@@ -1000,7 +1005,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -1036,8 +1041,21 @@ app.get('/api/status', (req, res) => {
     images: metadataList.length,
     hasThumbnails: !!thumbnailsFolderId,
     priceRows: priceCache.size,
-    priceCacheLoadedAt
+    priceCacheLoadedAt,
+    priceCacheError
   });
+});
+
+app.post('/api/prices/reload', async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    await refreshPriceCacheIfNeeded(true);
+    res.json({ success: true, priceRows: priceCache.size, priceCacheLoadedAt, priceCacheError });
+  } catch (e) {
+    priceCacheError = e.message;
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 app.get('/api/style/:style', (req, res) => {
