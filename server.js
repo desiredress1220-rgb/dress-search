@@ -591,6 +591,32 @@ function filterResultsByPriceCatalog(results) {
   return filtered.length ? filtered : results;
 }
 
+function findSimilarStyles(style, limit = 20) {
+  const target = normalizeStyleId(style);
+  if (!target) return [];
+  const compactTarget = target.replace(/[^A-Z0-9]/g, '');
+  const matches = [];
+  for (const [key, meta] of Object.entries(styleMetadata)) {
+    const compactKey = normalizeStyleId(key).replace(/[^A-Z0-9]/g, '');
+    if (
+      key === target ||
+      key.includes(target) ||
+      target.includes(key) ||
+      compactKey.includes(compactTarget) ||
+      compactTarget.includes(compactKey)
+    ) {
+      matches.push({
+        style: key,
+        count: meta.count || 0,
+        series: meta.series || '',
+        thumbIndex: meta.thumbIndex
+      });
+    }
+    if (matches.length >= limit) break;
+  }
+  return matches;
+}
+
 function insertTopScore(scores, score, limit) {
   let inserted = false;
   for (let i = 0; i < scores.length; i++) {
@@ -1065,6 +1091,17 @@ app.get('/api/style/:style', (req, res) => {
   res.json({ found: true, style, ...meta });
 });
 
+app.get('/api/styles/find/:style', (req, res) => {
+  const style = normalizeStyleId(req.params.style);
+  const exact = styleMetadata[style] || null;
+  res.json({
+    found: !!exact,
+    style,
+    exact,
+    similar: exact ? [] : findSimilarStyles(style)
+  });
+});
+
 app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
@@ -1159,7 +1196,8 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     timings.embeddingMs = Date.now() - startedAt;
     const topK = Math.max(1, Math.min(50, parseInt(req.query.topK || req.body.topK || '5', 10) || 5));
     const searchStartedAt = Date.now();
-    let results = searchStyles(queryEmb, topK);
+    const candidateK = Math.min(50, Math.max(topK * 4, topK + 10));
+    let results = searchStyles(queryEmb, candidateK);
     results = filterResultsByPriceCatalog(results);
     results = results.slice(0, topK);
     timings.rankMs = Date.now() - searchStartedAt;
