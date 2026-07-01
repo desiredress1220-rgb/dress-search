@@ -1031,7 +1031,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/') || req.path.startsWith('/api/styles/find/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
