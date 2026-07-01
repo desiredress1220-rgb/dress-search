@@ -56,12 +56,12 @@ function textFieldValue(value) {
   if (value == null) return '';
   if (typeof value === 'string' || typeof value === 'number') return String(value);
   if (Array.isArray(value)) return value.map(textFieldValue).join('');
-  if (typeof value === 'object') return value.text || value.name || value.value || '';
+  if (typeof value === 'object') return textFieldValue(value.text ?? value.name ?? value.value ?? value.formatted_value ?? '');
   return String(value);
 }
 
 function priceFieldValue(value) {
-  const raw = textFieldValue(value).trim();
+  const raw = String(textFieldValue(value)).trim();
   if (!raw) return null;
   const match = raw.match(/-?\d+(?:\.\d+)?/);
   if (!match) return null;
