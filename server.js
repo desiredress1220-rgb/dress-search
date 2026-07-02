@@ -19,6 +19,8 @@ const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || '';
 const VERTEX_PROJECT = 'desire-dress-search';
 const VERTEX_LOCATION = 'us-central1';
 const VERTEX_MODEL = 'multimodalembedding@001';
+const VERTEX_TIMEOUT_MS = 20000;
+const VERTEX_RETRY_DELAYS_MS = [900, 2200];
 
 let GCP_CREDENTIALS = {};
 try {
@@ -473,47 +475,74 @@ async function analyzeDressWithGemini(imageBuffer) {
 // ============================================================
 // Vertex AI
 // ============================================================
-async function getQueryEmbedding(imageBuffer) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function isTransientVertexError(status, bodyText) {
+  return (
+    status === 429 ||
+    status === 500 ||
+    status === 503 ||
+    /RESOURCE_EXHAUSTED|UNAVAILABLE|temporarily out of capacity/i.test(bodyText || '')
+  );
+}
+
+function vertexUserMessage(status, bodyText) {
+  if (status === 429 || /RESOURCE_EXHAUSTED|temporarily out of capacity/i.test(bodyText || '')) {
+    return 'Vertex AI is temporarily busy. Please try again in a few seconds.';
+  }
+  return `Vertex AI error ${status}: ${bodyText}`;
+}
+
+async function fetchVertexPrediction(instances, purpose) {
   const token = await getAccessToken();
+  const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
+  const body = JSON.stringify({ instances });
+
+  for (let attempt = 0; attempt <= VERTEX_RETRY_DELAYS_MS.length; attempt++) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      signal: AbortSignal.timeout(VERTEX_TIMEOUT_MS),
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body
+    });
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (!data.predictions?.[0]?.imageEmbedding) throw new Error('No embedding in response');
+      return new Float32Array(data.predictions[0].imageEmbedding);
+    }
+
+    const bodyText = await resp.text();
+    const canRetry = isTransientVertexError(resp.status, bodyText) && attempt < VERTEX_RETRY_DELAYS_MS.length;
+    if (!canRetry) {
+      throw new Error(vertexUserMessage(resp.status, bodyText));
+    }
+
+    const delayMs = VERTEX_RETRY_DELAYS_MS[attempt];
+    console.warn(`Vertex ${purpose} transient error ${resp.status}; retrying in ${delayMs}ms`);
+    await sleep(delayMs);
+  }
+
+  throw new Error('Vertex AI is temporarily busy. Please try again in a few seconds.');
+}
+
+async function getQueryEmbedding(imageBuffer) {
   const base64 = imageBuffer.toString('base64');
   const dressText = await analyzeDressWithGemini(imageBuffer);
-  const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    signal: AbortSignal.timeout(15000),
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      instances: [{
-        image: { bytesBase64Encoded: base64 },
-        text: `${dressText}. Match this dress to mannequin product photos. Ignore the model, face, pose, background, lighting, and scene. Focus on silhouette, neckline, straps, slit, beading, sequins, lace pattern, waist detail, train, and color.`
-      }]
-    })
-  });
-  if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
-  const data = await resp.json();
-  if (!data.predictions?.[0]?.imageEmbedding) throw new Error('No embedding in response');
-  return new Float32Array(data.predictions[0].imageEmbedding);
+  return fetchVertexPrediction([{
+    image: { bytesBase64Encoded: base64 },
+    text: `${dressText}. Match this dress to mannequin product photos. Ignore the model, face, pose, background, lighting, and scene. Focus on silhouette, neckline, straps, slit, beading, sequins, lace pattern, waist detail, train, and color.`
+  }], 'query');
 }
 
 async function getIndexEmbedding(imageBuffer) {
-  const token = await getAccessToken();
   const base64 = imageBuffer.toString('base64');
-  const url = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${VERTEX_PROJECT}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_MODEL}:predict`;
-  const resp = await fetch(url, {
-    method: 'POST',
-    signal: AbortSignal.timeout(15000),
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      instances: [{
-        image: { bytesBase64Encoded: base64 },
-        text: 'mannequin product photo of an evening gown dress, clear front view, dress details'
-      }]
-    })
-  });
-  if (!resp.ok) throw new Error(`Vertex AI error ${resp.status}: ${await resp.text()}`);
-  const data = await resp.json();
-  if (!data.predictions?.[0]?.imageEmbedding) throw new Error('No embedding in response');
-  return new Float32Array(data.predictions[0].imageEmbedding);
+  return fetchVertexPrediction([{
+    image: { bytesBase64Encoded: base64 },
+    text: 'mannequin product photo of an evening gown dress, clear front view, dress details'
+  }], 'index');
 }
 
 // ============================================================
