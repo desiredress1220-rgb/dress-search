@@ -45,12 +45,15 @@ let imageNorms = [];
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
-const indexFileIds = { metadata: null, embeddings: null, dims: null, deltaMetadata: null, deltaEmbeddings: null, tombstones: null };
+const indexFileIds = { metadata: null, embeddings: null, dims: null, deltaMetadata: null, deltaEmbeddings: null, tombstones: null, oneDriveState: null };
 const indexJobs = new Map();
 const HIDDEN_STYLE_PREFIXES = ['MD'];
 const DELTA_METADATA_FILE = 'delta_metadata.json';
 const DELTA_EMBEDDINGS_FILE = 'delta_embeddings.bin';
 const TOMBSTONES_FILE = 'index_tombstones.json';
+const ONEDRIVE_STATE_FILE = 'onedrive_delta_state.json';
+const ONEDRIVE_DELTA_ROOT_URL = 'https://graph.microsoft.com/v1.0/me/drive/root:/%E5%85%AC%E5%8F%B8%E4%BA%A7%E5%93%81%E6%AC%BE%E5%BC%8F%E5%9B%BE%E7%89%87/%E5%85%AC%E4%BB%94/%E5%85%AC%E4%BB%94%E5%9B%BE:/delta';
+const MAX_ONEDRIVE_ADDS_PER_RUN = 20;
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -294,6 +297,7 @@ async function loadDataFromDrive() {
   const deltaMetaFile = find(DELTA_METADATA_FILE);
   const deltaEmbFile = find(DELTA_EMBEDDINGS_FILE);
   const tombstonesFile = find(TOMBSTONES_FILE);
+  const oneDriveStateFile = find(ONEDRIVE_STATE_FILE);
   const thumbFolder = files.find(f => f.name === 'thumbnails' && f.mimeType === 'application/vnd.google-apps.folder');
 
   if (!metaFile) throw new Error('metadata.json not found in Drive folder');
@@ -304,6 +308,7 @@ async function loadDataFromDrive() {
   indexFileIds.deltaMetadata = deltaMetaFile?.id || null;
   indexFileIds.deltaEmbeddings = deltaEmbFile?.id || null;
   indexFileIds.tombstones = tombstonesFile?.id || null;
+  indexFileIds.oneDriveState = oneDriveStateFile?.id || null;
 
   if (thumbFolder) {
     thumbnailsFolderId = thumbFolder.id;
@@ -908,6 +913,178 @@ async function updateIndexMetadata(items) {
   };
 }
 
+async function ensureOneDriveStateFile() {
+  const id = await ensureDriveFile(ONEDRIVE_STATE_FILE, Buffer.from('{}'), 'application/json');
+  indexFileIds.oneDriveState = id;
+  return id;
+}
+
+async function readOneDriveState() {
+  const id = indexFileIds.oneDriveState || await ensureOneDriveStateFile();
+  const state = await readJsonDriveFile(id, {});
+  return state && typeof state === 'object' ? state : {};
+}
+
+async function writeOneDriveState(nextState) {
+  const id = indexFileIds.oneDriveState || await ensureOneDriveStateFile();
+  await driveUpdateFile(id, Buffer.from(JSON.stringify(nextState)), 'application/json');
+}
+
+async function getOneDriveDeltaUrl(mode = '') {
+  if (mode === 'reconcile') return ONEDRIVE_DELTA_ROOT_URL;
+  const state = await readOneDriveState();
+  return state.deltaLink || `${ONEDRIVE_DELTA_ROOT_URL}?token=latest`;
+}
+
+function seriesFromOneDrivePath(parentPath, style = '') {
+  const text = decodeURIComponent(String(parentPath || ''));
+  const stylePrefix = extractStyleId(style).match(/^[A-Z]+/)?.[0] || '';
+  const seriesMatch = text.match(/([A-Z]{1,5})\s*系列/i);
+  const prefix = (seriesMatch?.[1] || stylePrefix || '').toUpperCase();
+  return prefix ? `${prefix}系列` : '其他';
+}
+
+function isOneDriveImageFile(item) {
+  const name = String(item?.name || '').toLowerCase();
+  const mime = String(item?.file?.mimeType || '').toLowerCase();
+  return mime.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(name);
+}
+
+function oneDriveImageRecord(item) {
+  const name = item.name || '';
+  const parentPath = item.parentReference?.path || '';
+  const style = extractStyleId(name) || normalizeStyleId(name);
+  return {
+    id: item.id || '',
+    driveId: item.id || '',
+    name,
+    fileName: name,
+    driveName: name,
+    style,
+    series: seriesFromOneDrivePath(parentPath, style),
+    parentPath,
+    size: item.size || 0,
+    lastModified: item.lastModifiedDateTime || '',
+    downloadUrl: item['@microsoft.graph.downloadUrl'] || item['@content.downloadUrl'] || ''
+  };
+}
+
+async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_ONEDRIVE_ADDS_PER_RUN } = {}) {
+  const changes = Array.isArray(payload?.value) ? payload.value : [];
+  const nextLink = payload?.['@odata.nextLink'] || '';
+  const finalDeltaLink = payload?.['@odata.deltaLink'] || '';
+  const deleted = [];
+  const changedImages = [];
+
+  for (const item of changes) {
+    if (item.deleted) {
+      deleted.push({
+        id: item.id || '',
+        driveId: item.id || '',
+        name: item.name || '',
+        reason: 'onedrive-delete'
+      });
+      continue;
+    }
+    if (item.folder || !isOneDriveImageFile(item)) continue;
+    changedImages.push(oneDriveImageRecord(item));
+  }
+
+  const sync = { tombstone: null, updated: [], added: [], skipped: [], errors: [] };
+  if (changedImages.length) {
+    try {
+      const result = await updateIndexMetadata(changedImages);
+      sync.updated = result.details || [];
+      const updatedKeys = new Set(sync.updated.flatMap(item => [
+        item.driveId ? `id:${normalizeStyleId(item.driveId)}` : '',
+        item.name ? `name:${normalizeStyleId(item.name)}` : ''
+      ]).filter(Boolean));
+
+      let addsStarted = 0;
+      const missing = result.missingDetails || [];
+      for (const file of missing) {
+        const source = changedImages.find(item =>
+          (file.driveId && normalizeStyleId(file.driveId) === normalizeStyleId(item.driveId)) ||
+          (file.name && normalizeStyleId(file.name) === normalizeStyleId(item.name))
+        );
+        if (!source) continue;
+        if (updatedKeys.has(`id:${normalizeStyleId(source.driveId)}`) || updatedKeys.has(`name:${normalizeStyleId(source.name)}`)) continue;
+        if (!source.downloadUrl) {
+          sync.skipped.push({ name: source.name, reason: 'no_download_url' });
+          continue;
+        }
+        if (addsStarted >= addLimit) {
+          sync.skipped.push({ name: source.name, reason: 'add_limit' });
+          continue;
+        }
+        addsStarted += 1;
+        try {
+          const resp = await fetch(source.downloadUrl);
+          if (!resp.ok) {
+            sync.skipped.push({ name: source.name, reason: `download_${resp.status}` });
+            continue;
+          }
+          const imageBuffer = Buffer.from(await resp.arrayBuffer());
+          sync.added.push(await addImageToDeltaIndex({
+            imageBuffer,
+            fileName: source.name,
+            style: source.style,
+            series: source.series,
+            driveId: source.driveId,
+            parentPath: source.parentPath
+          }));
+        } catch (e) {
+          sync.errors.push({ name: source.name, error: e.message });
+        }
+      }
+    } catch (e) {
+      sync.errors.push({ op: 'update-metadata', error: e.message });
+    }
+  }
+
+  if (deleted.length) {
+    try {
+      sync.tombstone = await addIndexTombstones(deleted);
+    } catch (e) {
+      sync.errors.push({ op: 'tombstone', error: e.message });
+    }
+  }
+
+  if ((sync.updated.length || sync.added.length || deleted.length) && !sync.errors.length) {
+    await loadIndex();
+  }
+
+  if (finalDeltaLink && !nextLink && !sync.errors.length && mode !== 'dry-run') {
+    await writeOneDriveState({
+      deltaLink: finalDeltaLink,
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  return {
+    success: sync.errors.length === 0,
+    mode,
+    hasMoreData: !!nextLink,
+    url: nextLink,
+    deltaLinkSaved: !!finalDeltaLink && !nextLink && !sync.errors.length,
+    summary: {
+      files: changes.length,
+      changedImages: changedImages.length,
+      deleted: deleted.length,
+      metadataUpdated: sync.updated.length,
+      added: sync.added.length,
+      skipped: sync.skipped.length,
+      errors: sync.errors.length
+    },
+    sync: {
+      updated: sync.updated.slice(0, 10),
+      added: sync.added.slice(0, 10),
+      skipped: sync.skipped.slice(0, 20),
+      errors: sync.errors.slice(0, 20)
+    }
+  };
+}
+
 async function addIndexTombstones(items) {
   if (!Array.isArray(items)) throw new Error('items must be an array');
   if (!items.length) return { added: 0, total: 0 };
@@ -1130,7 +1307,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/update-metadata' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/') || req.path.startsWith('/api/styles/find/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/onedrive/next-delta-url' || req.path === '/api/onedrive/process-delta' || req.path === '/api/index/add-image' || req.path === '/api/index/update-metadata' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/') || req.path.startsWith('/api/styles/find/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -1199,6 +1376,31 @@ app.get('/api/styles/find/:style', (req, res) => {
     exact,
     similar: exact ? [] : findSimilarStyles(style)
   });
+});
+
+app.get('/api/onedrive/next-delta-url', async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const mode = String(req.query.mode || '');
+    res.json({ success: true, url: await getOneDriveDeltaUrl(mode), mode });
+  } catch (e) {
+    console.error('OneDrive next delta URL error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+app.post('/api/onedrive/process-delta', async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const mode = String(req.query.mode || req.body.mode || '');
+    const addLimit = Math.max(0, Math.min(Number(req.query.addLimit || MAX_ONEDRIVE_ADDS_PER_RUN), MAX_ONEDRIVE_ADDS_PER_RUN));
+    res.json(await processOneDriveDeltaPayload(req.body, { mode, addLimit }));
+  } catch (e) {
+    console.error('OneDrive process delta error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
 });
 
 app.post('/api/index/update-metadata', async (req, res) => {
