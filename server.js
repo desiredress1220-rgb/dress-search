@@ -1334,7 +1334,7 @@ async function refreshPriceCacheIfNeeded(force = false) {
 // ============================================================
 // Express
 // ============================================================
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
 
 const AUTH_SECRET = 'dress-search-v1';
