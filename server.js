@@ -921,16 +921,27 @@ async function ensureOneDriveStateFile() {
 
 async function readOneDriveState() {
   const id = indexFileIds.oneDriveState;
-  if (!id) return {};
+  if (!id) {
+    const tombstones = await readJsonDriveFile(indexFileIds.tombstones, []);
+    const state = Array.isArray(tombstones) ? tombstones.find(item => item && item.type === 'onedrive_delta_state') : null;
+    return state && typeof state === 'object' ? state : {};
+  }
   const state = await readJsonDriveFile(id, {});
   return state && typeof state === 'object' ? state : {};
 }
 
 async function writeOneDriveState(nextState) {
   const id = indexFileIds.oneDriveState;
-  if (!id) return { saved: false, reason: `${ONEDRIVE_STATE_FILE} is missing` };
+  if (!id) {
+    if (!indexFileIds.tombstones) return { saved: false, reason: `${ONEDRIVE_STATE_FILE} and ${TOMBSTONES_FILE} are missing` };
+    const tombstones = await readJsonDriveFile(indexFileIds.tombstones, []);
+    const nextTombstones = Array.isArray(tombstones) ? tombstones.filter(item => !item || item.type !== 'onedrive_delta_state') : [];
+    nextTombstones.push({ ...nextState, type: 'onedrive_delta_state' });
+    await driveUpdateFile(indexFileIds.tombstones, Buffer.from(JSON.stringify(nextTombstones)), 'application/json');
+    return { saved: true, storage: TOMBSTONES_FILE };
+  }
   await driveUpdateFile(id, Buffer.from(JSON.stringify(nextState)), 'application/json');
-  return { saved: true };
+  return { saved: true, storage: ONEDRIVE_STATE_FILE };
 }
 
 async function getOneDriveDeltaUrl(mode = '') {
