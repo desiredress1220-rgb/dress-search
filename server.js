@@ -920,14 +920,17 @@ async function ensureOneDriveStateFile() {
 }
 
 async function readOneDriveState() {
-  const id = indexFileIds.oneDriveState || await ensureOneDriveStateFile();
+  const id = indexFileIds.oneDriveState;
+  if (!id) return {};
   const state = await readJsonDriveFile(id, {});
   return state && typeof state === 'object' ? state : {};
 }
 
 async function writeOneDriveState(nextState) {
-  const id = indexFileIds.oneDriveState || await ensureOneDriveStateFile();
+  const id = indexFileIds.oneDriveState;
+  if (!id) return { saved: false, reason: `${ONEDRIVE_STATE_FILE} is missing` };
   await driveUpdateFile(id, Buffer.from(JSON.stringify(nextState)), 'application/json');
+  return { saved: true };
 }
 
 async function getOneDriveDeltaUrl(mode = '') {
@@ -1055,10 +1058,11 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
   }
 
   if (finalDeltaLink && !nextLink && !sync.errors.length && mode !== 'dry-run') {
-    await writeOneDriveState({
+    const stateResult = await writeOneDriveState({
       deltaLink: finalDeltaLink,
       updatedAt: new Date().toISOString()
     });
+    sync.state = stateResult;
   }
 
   return {
@@ -1066,7 +1070,7 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
     mode,
     hasMoreData: !!nextLink,
     url: nextLink,
-    deltaLinkSaved: !!finalDeltaLink && !nextLink && !sync.errors.length,
+    deltaLinkSaved: !!sync.state?.saved,
     summary: {
       files: changes.length,
       changedImages: changedImages.length,
@@ -1080,7 +1084,8 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
       updated: sync.updated.slice(0, 10),
       added: sync.added.slice(0, 10),
       skipped: sync.skipped.slice(0, 20),
-      errors: sync.errors.slice(0, 20)
+      errors: sync.errors.slice(0, 20),
+      state: sync.state || null
     }
   };
 }
