@@ -400,7 +400,7 @@ function computeStyleAverages(metadata, embeddings) {
     const img = metadata[i];
     const style = metadataStyleId(img);
     if (!groups[style]) {
-      groups[style] = { indices: [], series: img.series || '' };
+      groups[style] = { indices: [], series: displaySeriesForStyle(style, img.series || '') };
     }
     groups[style].indices.push(i);
 
@@ -561,7 +561,7 @@ function searchStylesByImages(queryEmb, topK = 5) {
     if (isHiddenStyle(style)) continue;
     const current = styleScores.get(style) || {
       style,
-      series: img.series || '',
+      series: displaySeriesForStyle(style, img.series || ''),
       count: styleMetadata[style]?.count || 0,
       imageCount: 0,
       topScores: [],
@@ -575,7 +575,7 @@ function searchStylesByImages(queryEmb, topK = 5) {
     if (score > (current.bestScore ?? -Infinity)) {
       current.bestScore = score;
       current.thumbIndex = idx;
-      if (img.series) current.series = img.series;
+      current.series = displaySeriesForStyle(style, img.series || current.series);
     }
     styleScores.set(style, current);
   }
