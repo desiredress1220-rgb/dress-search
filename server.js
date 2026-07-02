@@ -54,6 +54,15 @@ const TOMBSTONES_FILE = 'index_tombstones.json';
 const ONEDRIVE_STATE_FILE = 'onedrive_delta_state.json';
 const ONEDRIVE_DELTA_ROOT_URL = 'https://graph.microsoft.com/v1.0/me/drive/root:/%E5%85%AC%E5%8F%B8%E4%BA%A7%E5%93%81%E6%AC%BE%E5%BC%8F%E5%9B%BE%E7%89%87/%E5%85%AC%E4%BB%94/%E5%85%AC%E4%BB%94%E5%9B%BE:/delta';
 const MAX_ONEDRIVE_ADDS_PER_RUN = 20;
+const STYLE_RENAMES = {
+  MD50088: 'MC20181-D',
+  MD50004: 'MB40483',
+  MD50022: 'MC20182',
+  MD50109: 'MB40482-D',
+  MD50065: 'MC20178',
+  MD50001: 'MY30270',
+  'MD50109-2': 'MB40482-2'
+};
 
 function textFieldValue(value) {
   if (value == null) return '';
@@ -88,6 +97,11 @@ function extractStyleId(value) {
   return match ? match[0] : '';
 }
 
+function renamedStyleId(style) {
+  const normalized = normalizeStyleId(style);
+  return STYLE_RENAMES[normalized] || normalized;
+}
+
 function displaySeriesForStyle(style, fallback = '') {
   const prefix = extractStyleId(style).match(/^[A-Z]+/)?.[0];
   if (prefix) return `${prefix}系列`;
@@ -95,9 +109,10 @@ function displaySeriesForStyle(style, fallback = '') {
 }
 
 function resolvedStyleId({ style, style_number, item_no, name, fileName, driveName } = {}) {
-  return extractStyleId(name || fileName || driveName) ||
+  const resolved = extractStyleId(name || fileName || driveName) ||
     extractStyleId(style || style_number || item_no) ||
     normalizeStyleId(style || style_number || item_no || name || fileName || driveName || 'unknown');
+  return renamedStyleId(resolved);
 }
 
 function metadataStyleId(img) {
@@ -1548,7 +1563,6 @@ app.post('/api/search', upload.single('image'), async (req, res) => {
     const searchStartedAt = Date.now();
     const candidateK = Math.min(50, Math.max(topK * 4, topK + 10));
     let results = searchStyles(queryEmb, candidateK);
-    results = filterResultsByPriceCatalog(results);
     results = results.slice(0, topK);
     timings.rankMs = Date.now() - searchStartedAt;
 
