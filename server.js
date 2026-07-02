@@ -829,6 +829,85 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   return { added: true, style: normalizedStyle, deltaImages: deltaMetadata.length + 1 };
 }
 
+function applyMetadataUpdates(records, items) {
+  const updated = [];
+  const missing = [];
+  const seenIndexes = new Set();
+
+  for (const item of Array.isArray(items) ? items : []) {
+    const fileName = item.fileName || item.name || item.driveName || '';
+    const driveId = normalizeStyleId(item.driveId || item.id || item.oneDriveId || '');
+    const normalizedName = normalizeStyleId(fileName);
+    const normalizedStyle = resolvedStyleId({ name: fileName, fileName, driveName: fileName, style: item.style || item.styleNumber });
+    if (!normalizedStyle && !driveId && !normalizedName) continue;
+
+    const idx = records.findIndex((record, i) => {
+      if (seenIndexes.has(i)) return false;
+      const recordDriveId = normalizeStyleId(record.driveId || record.oneDriveId || record.id || '');
+      const recordName = normalizeStyleId(record.driveName || record.name || record.fileName || '');
+      return (driveId && recordDriveId && recordDriveId === driveId) ||
+        (normalizedName && recordName && recordName === normalizedName);
+    });
+
+    if (idx < 0) {
+      missing.push({ driveId: item.driveId || item.id || '', name: fileName, style: normalizedStyle });
+      continue;
+    }
+
+    seenIndexes.add(idx);
+    const next = {
+      ...records[idx],
+      style: normalizedStyle,
+      style_number: normalizedStyle,
+      item_no: normalizedStyle,
+      series: displaySeriesForStyle(normalizedStyle, item.series || records[idx].series || ''),
+      name: fileName || records[idx].name,
+      fileName: fileName || records[idx].fileName,
+      driveName: fileName || records[idx].driveName,
+      driveId: item.driveId || item.id || records[idx].driveId || '',
+      oneDriveId: item.driveId || item.id || records[idx].oneDriveId || '',
+      parentPath: item.parentPath || records[idx].parentPath || '',
+      updatedAt: new Date().toISOString(),
+      source: records[idx].source || 'onedrive-delta'
+    };
+    records[idx] = next;
+    updated.push({ index: idx, style: normalizedStyle, name: next.name, driveId: next.driveId || next.oneDriveId || '' });
+  }
+
+  return { updated, missing };
+}
+
+async function updateIndexMetadata(items) {
+  if (!Array.isArray(items)) throw new Error('items must be an array');
+  if (!items.length) return { updated: 0, missing: 0, details: [] };
+  if (!indexFileIds.metadata) throw new Error('Metadata file id is not loaded');
+
+  const metaResp = await driveDownload(indexFileIds.metadata);
+  const mainMetadata = await metaResp.json();
+  const mainResult = applyMetadataUpdates(mainMetadata, items);
+  if (mainResult.updated.length) {
+    await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(mainMetadata)), 'application/json');
+  }
+
+  let deltaResult = { updated: [], missing: [] };
+  if (indexFileIds.deltaMetadata) {
+    const deltaMetadata = await readJsonDriveFile(indexFileIds.deltaMetadata, []);
+    deltaResult = applyMetadataUpdates(deltaMetadata, items);
+    if (deltaResult.updated.length) {
+      await driveUpdateFile(indexFileIds.deltaMetadata, Buffer.from(JSON.stringify(deltaMetadata)), 'application/json');
+    }
+  }
+
+  const memoryResult = applyMetadataUpdates(metadataList, items);
+  return {
+    updated: mainResult.updated.length + deltaResult.updated.length,
+    missing: mainResult.missing.length,
+    memoryUpdated: memoryResult.updated.length,
+    details: mainResult.updated.concat(deltaResult.updated).slice(0, 20),
+    missingDetails: mainResult.missing.slice(0, 20)
+  };
+}
+
 async function addIndexTombstones(items) {
   if (!Array.isArray(items)) throw new Error('items must be an array');
   if (!items.length) return { added: 0, total: 0 };
@@ -1051,7 +1130,7 @@ function makeAuthToken(pw) { return crypto.createHmac('sha256', AUTH_SECRET).upd
 function authCheck(req, res, next) {
   if (req.path === '/api/login') return next();
   const secret = req.headers['x-reload-secret'] || req.query.secret;
-  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/') || req.path.startsWith('/api/styles/find/')) && secret === APP_PASSWORD) return next();
+  if ((req.path === '/api/reload' || req.path === '/api/prices/reload' || req.path === '/api/index/add-image' || req.path === '/api/index/update-metadata' || req.path === '/api/index/tombstone' || req.path.startsWith('/api/index/job/') || req.path.startsWith('/api/style/') || req.path.startsWith('/api/styles/find/')) && secret === APP_PASSWORD) return next();
   const token = req.cookies?.auth;
   const expected = makeAuthToken(APP_PASSWORD);
   if (token === expected) return next();
@@ -1120,6 +1199,19 @@ app.get('/api/styles/find/:style', (req, res) => {
     exact,
     similar: exact ? [] : findSimilarStyles(style)
   });
+});
+
+app.post('/api/index/update-metadata', async (req, res) => {
+  const secret = req.headers['x-reload-secret'] || req.query.secret;
+  if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const items = req.body.items || req.body.files || req.body.changes || [];
+    const result = await updateIndexMetadata(items);
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('Update index metadata error:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post('/api/index/add-image', upload.single('image'), async (req, res) => {
