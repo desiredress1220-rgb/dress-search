@@ -924,6 +924,9 @@ async function readOneDriveState() {
   if (!id) {
     const tombstones = await readJsonDriveFile(indexFileIds.tombstones, []);
     const state = Array.isArray(tombstones) ? tombstones.find(item => item && item.type === 'onedrive_delta_state') : null;
+    if (state && typeof state === 'object') return state;
+    const dims = await readJsonDriveFile(indexFileIds.dims, {});
+    if (dims?.oneDriveDeltaState && typeof dims.oneDriveDeltaState === 'object') return dims.oneDriveDeltaState;
     return state && typeof state === 'object' ? state : {};
   }
   const state = await readJsonDriveFile(id, {});
@@ -933,12 +936,19 @@ async function readOneDriveState() {
 async function writeOneDriveState(nextState) {
   const id = indexFileIds.oneDriveState;
   if (!id) {
-    if (!indexFileIds.tombstones) return { saved: false, reason: `${ONEDRIVE_STATE_FILE} and ${TOMBSTONES_FILE} are missing` };
-    const tombstones = await readJsonDriveFile(indexFileIds.tombstones, []);
-    const nextTombstones = Array.isArray(tombstones) ? tombstones.filter(item => !item || item.type !== 'onedrive_delta_state') : [];
-    nextTombstones.push({ ...nextState, type: 'onedrive_delta_state' });
-    await driveUpdateFile(indexFileIds.tombstones, Buffer.from(JSON.stringify(nextTombstones)), 'application/json');
-    return { saved: true, storage: TOMBSTONES_FILE };
+    if (indexFileIds.tombstones) {
+      const tombstones = await readJsonDriveFile(indexFileIds.tombstones, []);
+      const nextTombstones = Array.isArray(tombstones) ? tombstones.filter(item => !item || item.type !== 'onedrive_delta_state') : [];
+      nextTombstones.push({ ...nextState, type: 'onedrive_delta_state' });
+      await driveUpdateFile(indexFileIds.tombstones, Buffer.from(JSON.stringify(nextTombstones)), 'application/json');
+      return { saved: true, storage: TOMBSTONES_FILE };
+    }
+    if (indexFileIds.dims) {
+      const dims = await readJsonDriveFile(indexFileIds.dims, { dimensions: embDim });
+      await driveUpdateFile(indexFileIds.dims, Buffer.from(JSON.stringify({ ...dims, oneDriveDeltaState: nextState })), 'application/json');
+      return { saved: true, storage: 'dims.json' };
+    }
+    return { saved: false, reason: `${ONEDRIVE_STATE_FILE}, ${TOMBSTONES_FILE}, and dims.json are missing` };
   }
   await driveUpdateFile(id, Buffer.from(JSON.stringify(nextState)), 'application/json');
   return { saved: true, storage: ONEDRIVE_STATE_FILE };
