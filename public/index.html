@@ -65,11 +65,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-
 .r-ptag .plbl{color:#888;font-size:11px;text-transform:uppercase;letter-spacing:.5px}
 .r-ptag .pval{font-weight:700;color:#2d5a3d;font-size:16px}
 .r-ptag .pval.na{color:#ccc;font-size:13px;font-weight:400}
-.r-thumbs{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px}
+.r-thumbs{display:flex;gap:4px;overflow-x:auto;padding-bottom:4px;align-items:center}
 .r-thumbs::-webkit-scrollbar{height:0}
-.r-thumbs img{width:64px;height:80px;object-fit:cover;border-radius:6px;border:2px solid transparent;cursor:pointer;flex-shrink:0;image-orientation:from-image}
-.r-thumbs img.rotated{object-fit:contain;transform:rotate(90deg) scale(.78);background:#f7f8f6}
-.r-thumbs img:hover{border-color:#5a8f6e}
+.thumb-frame{width:64px;height:80px;border-radius:6px;border:2px solid transparent;cursor:pointer;flex:0 0 64px;overflow:hidden;position:relative;background:#f7f8f6}
+.thumb-frame img{width:100%;height:100%;object-fit:cover;display:block;image-orientation:from-image}
+.thumb-frame img.rotated{width:80px;height:64px;max-width:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%) rotate(90deg);object-fit:cover}
+.thumb-frame:hover{border-color:#5a8f6e}
 
 /* Loading */
 .ld-bar{text-align:center;padding:32px 20px;display:none}
@@ -81,7 +82,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC',sans-
 .init-box p{font-size:13px;color:#999;margin-top:10px}
 
 .hidden{display:none!important}
-@media(max-width:420px){.r-style{font-size:18px}.r-ptag .pval{font-size:14px}.r-thumbs img{width:56px;height:70px}}
+@media(max-width:420px){.r-style{font-size:18px}.r-ptag .pval{font-size:14px}.thumb-frame{width:56px;height:70px;flex-basis:56px}.thumb-frame img.rotated{width:70px;height:56px}}
 </style>
 </head>
 <body>
@@ -191,7 +192,7 @@ return `<div class="result-card ${isBest?'best':''}">
 <div class="r-ptag"><span class="plbl">Wholesale</span> <span class="pval ${w?'':'na'}">${w||'—'}</span></div>
 <div class="r-ptag"><span class="plbl">Retail</span> <span class="pval ${rt?'':'na'}">${rt||'—'}</span></div>
 </div>
-${ht&&tis.length?`<div class="r-thumbs">${tis.map(i=>`<img src="/api/thumb/${i}" onload="fixThumb(this)" onerror="this.style.display='none'">`).join('')}</div>`:''}
+${ht&&tis.length?`<div class="r-thumbs">${tis.map(i=>`<span class="thumb-frame"><img src="/api/thumb/${i}" onload="fixThumb(this)" onerror="this.parentElement.style.display='none'"></span>`).join('')}</div>`:''}
 </div>`}).join('')}
 
 function fixThumb(img){if(img.naturalWidth>img.naturalHeight*1.15)img.classList.add('rotated')}

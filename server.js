@@ -1550,23 +1550,38 @@ app.get('/api/index/job/:id', (req, res) => {
 
 // Thumbnail proxy - downloads from Drive on demand with caching
 app.get('/api/thumb/:index', async (req, res) => {
-  if (!thumbnailsFolderId) return res.status(404).send('No thumbnails');
-  const idx = req.params.index;
+  const idx = Number(req.params.index);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= metadataList.length) return res.status(404).send('Thumbnail not found');
+  const cacheKey = String(idx);
+  const record = metadataList[idx] || {};
 
   // Check cache
-  if (thumbCache[idx]) {
+  if (thumbCache[cacheKey]) {
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400');
-    return res.send(thumbCache[idx]);
+    return res.send(thumbCache[cacheKey]);
   }
 
   try {
-    const file = await driveSearchFile(thumbnailsFolderId, `${idx}.jpg`);
-    if (!file) return res.status(404).send('Thumbnail not found');
-    const dlResp = await driveDownload(file.id);
+    let dlResp = null;
+    if (record.downloadUrl) {
+      dlResp = await fetch(record.downloadUrl);
+      if (!dlResp.ok) dlResp = null;
+    }
+
+    if (!dlResp && record.googleDriveId) {
+      dlResp = await driveDownload(record.googleDriveId);
+    }
+
+    if (!dlResp && thumbnailsFolderId) {
+      const file = await driveSearchFile(thumbnailsFolderId, `${idx}.jpg`);
+      if (file) dlResp = await driveDownload(file.id);
+    }
+
+    if (!dlResp) return res.status(404).send('Thumbnail not found');
     const buf = Buffer.from(await dlResp.arrayBuffer());
-    // Cache (limit to 500 thumbnails in memory ~25MB)
-    if (Object.keys(thumbCache).length < 500) thumbCache[idx] = buf;
+    // Cache only small thumbnail files. OneDrive fallback may be a full-size image.
+    if (buf.length <= 200 * 1024 && Object.keys(thumbCache).length < 500) thumbCache[cacheKey] = buf;
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(buf);
