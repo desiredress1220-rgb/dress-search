@@ -927,6 +927,9 @@ async function readOneDriveState() {
     if (state && typeof state === 'object') return state;
     const dims = await readJsonDriveFile(indexFileIds.dims, {});
     if (dims?.oneDriveDeltaState && typeof dims.oneDriveDeltaState === 'object') return dims.oneDriveDeltaState;
+    const metadata = await readJsonDriveFile(indexFileIds.metadata, []);
+    const metadataState = Array.isArray(metadata) ? metadata.find(item => item && item.type === 'onedrive_delta_state') : null;
+    if (metadataState && typeof metadataState === 'object') return metadataState;
     return state && typeof state === 'object' ? state : {};
   }
   const state = await readJsonDriveFile(id, {});
@@ -948,7 +951,14 @@ async function writeOneDriveState(nextState) {
       await driveUpdateFile(indexFileIds.dims, Buffer.from(JSON.stringify({ ...dims, oneDriveDeltaState: nextState })), 'application/json');
       return { saved: true, storage: 'dims.json' };
     }
-    return { saved: false, reason: `${ONEDRIVE_STATE_FILE}, ${TOMBSTONES_FILE}, and dims.json are missing` };
+    if (indexFileIds.metadata) {
+      const metadata = await readJsonDriveFile(indexFileIds.metadata, []);
+      const nextMetadata = Array.isArray(metadata) ? metadata.filter(item => !item || item.type !== 'onedrive_delta_state') : [];
+      nextMetadata.push({ ...nextState, type: 'onedrive_delta_state' });
+      await driveUpdateFile(indexFileIds.metadata, Buffer.from(JSON.stringify(nextMetadata)), 'application/json');
+      return { saved: true, storage: 'metadata.json' };
+    }
+    return { saved: false, reason: `${ONEDRIVE_STATE_FILE}, ${TOMBSTONES_FILE}, dims.json, and metadata.json are missing` };
   }
   await driveUpdateFile(id, Buffer.from(JSON.stringify(nextState)), 'application/json');
   return { saved: true, storage: ONEDRIVE_STATE_FILE };
