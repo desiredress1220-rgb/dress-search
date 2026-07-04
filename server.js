@@ -1,3 +1,4 @@
+const loadIndex = async () => loadAndInit();
 const express = require('express');
 const multer = require('multer');
 const cookieParser = require('cookie-parser');
