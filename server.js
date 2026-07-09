@@ -852,7 +852,7 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
     const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
     return normalizedName && existingName === normalizedName;
   });
-  if (deltaExisting) return { added: false, reason: 'already_exists_in_delta', style: normalizedStyle };
+  if (deltaExisting) { try { const _idx = metadataList.length + deltaMetadata.indexOf(deltaExisting); if (thumbnailsFolderId && _idx >= metadataList.length) { const _fname = _idx + '.jpg'; const _has = await driveSearchFile(thumbnailsFolderId, _fname); if (!_has) { await driveUploadToFolder(thumbnailsFolderId, _fname, imageBuffer, 'image/jpeg'); thumbCache[_idx] = imageBuffer; } } } catch (e) { console.error('Delta thumb backfill:', e && e.message); } return { added: false, reason: 'already_exists_in_delta', style: normalizedStyle }; }
 
   const embedding = await getIndexEmbedding(imageBuffer);
   if (embedding.length !== embDim) throw new Error(`Unexpected embedding dimension ${embedding.length}, expected ${embDim}`);
@@ -876,7 +876,7 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   await driveUpdateFile(deltaEmbeddingsId, Buffer.concat([embBuffer, embeddingBuffer]), 'application/octet-stream');
   await driveUpdateFile(deltaMetadataId, Buffer.from(JSON.stringify(deltaMetadata.concat(record))), 'application/json');
 
-  return { added: true, style: normalizedStyle, deltaImages: deltaMetadata.length + 1 };
+  try { const _idx = metadataList.length + deltaMetadata.length; if (thumbnailsFolderId) { await driveUploadToFolder(thumbnailsFolderId, _idx + '.jpg', imageBuffer, 'image/jpeg'); thumbCache[_idx] = imageBuffer; } } catch (e) { console.error('Delta thumb upload:', e && e.message); } return { added: true, style: normalizedStyle, deltaImages: deltaMetadata.length + 1 };
 }
 
 function applyMetadataUpdates(records, items) {
