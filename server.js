@@ -1074,6 +1074,7 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
     try {
       const result = await updateIndexMetadata(changedImages);
       sync.updated = result.details || [];
+      if (thumbnailsFolderId) { for (const _src of changedImages) { try { const _srcDriveId = normalizeStyleId(_src.driveId || ''); const _srcName = normalizeStyleId(_src.name || _src.fileName || ''); const _idx = metadataList.findIndex(r => { const rd = normalizeStyleId(r.driveId || r.oneDriveId || r.id || ''); const rn = normalizeStyleId(r.driveName || r.name || r.fileName || ''); return (_srcDriveId && rd === _srcDriveId) || (_srcName && rn === _srcName); }); if (_idx < 0) continue; const _fname = _idx + '.jpg'; const _has = await driveSearchFile(thumbnailsFolderId, _fname); if (_has) continue; if (!_src.downloadUrl) continue; const _resp = await fetch(_src.downloadUrl); if (!_resp.ok) continue; const _buf = Buffer.from(await _resp.arrayBuffer()); await driveUploadToFolder(thumbnailsFolderId, _fname, _buf, 'image/jpeg'); thumbCache[_idx] = _buf; sync.updated.push({ index: _idx, style: (_src.style || _src.styleId || ''), name: _src.name, thumbBackfilled: true }); } catch (_e) { console.error('Thumb backfill loop:', _e && _e.message); } } }
       const updatedKeys = new Set(sync.updated.flatMap(item => [
         item.driveId ? `id:${normalizeStyleId(item.driveId)}` : '',
         item.name ? `name:${normalizeStyleId(item.name)}` : ''
