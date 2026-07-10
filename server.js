@@ -1475,6 +1475,7 @@ app.get('/api/onedrive/next-delta-url', async (req, res) => {
 app.post('/api/onedrive/process-delta', async (req, res) => {
   const secret = req.headers['x-reload-secret'] || req.query.secret;
   if (secret !== APP_PASSWORD) return res.status(403).json({ error: 'Forbidden' });
+  if (!searchReady || !indexFileIds.metadata) return res.status(503).json({ success: false, error: 'Index not ready', searchReady, metadataLoaded: !!indexFileIds.metadata, loadError });
   try {
     const mode = String(req.query.mode || req.body.mode || '');
     const addLimit = Math.max(0, Math.min(Number(req.query.addLimit || MAX_ONEDRIVE_ADDS_PER_RUN), MAX_ONEDRIVE_ADDS_PER_RUN));
@@ -1661,11 +1662,29 @@ app.post('/api/reload', async (req, res) => {
 // Startup
 // ============================================================
 async function loadAndInit() {
-  const { metadata, embeddings } = await loadDataFromDrive();
-  computeStyleAverages(metadata, embeddings);
-  searchReady = true;
-  loadingProgress = '就绪';
-  console.log(`✅ Search engine ready — ${Object.keys(styleMetadata).length} styles, ${metadataList.length} images loaded`);
+  const delays = [5000, 15000, 45000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      const { metadata, embeddings } = await loadDataFromDrive();
+      computeStyleAverages(metadata, embeddings);
+      if (!indexFileIds.metadata || !indexFileIds.embeddings) throw new Error('index file ids missing after load');
+      searchReady = true;
+      loadingProgress = '就绪';
+      loadError = null;
+      console.log(`✅ Search engine ready — ${Object.keys(styleMetadata).length} styles, ${metadataList.length} images loaded`);
+      return;
+    } catch (e) {
+      loadError = `Init attempt ${attempt + 1} failed: ${e.message}`;
+      console.error(loadError, e);
+      if (attempt === delays.length) {
+        console.error('🚨 loadAndInit gave up after retries. Exiting so Zeabur restarts the service.');
+        setTimeout(() => process.exit(1), 500);
+        return;
+      }
+      console.log(`Retrying loadAndInit in ${delays[attempt] / 1000}s...`);
+      await new Promise(r => setTimeout(r, delays[attempt]));
+    }
+  }
 }
 
 app.listen(PORT, () => {
