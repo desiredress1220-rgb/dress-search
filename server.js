@@ -96,6 +96,16 @@ function normalizeStyleId(value) {
     .toUpperCase();
 }
 
+// File identity must preserve camera/export suffixes such as "(1)" and "(2)".
+// Those suffixes are irrelevant when extracting a style number, but they identify
+// different source photos and therefore must not be removed for deduplication.
+function normalizeImageKey(value) {
+  return textFieldValue(value)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toUpperCase();
+}
+
 function extractStyleId(value) {
   const normalized = normalizeStyleId(value);
   // A suffix identifies a distinct design variant and must remain in the
@@ -106,11 +116,12 @@ function extractStyleId(value) {
 }
 
 function imageRecordMatchesSource(record, source) {
-  const sourceDriveId = normalizeStyleId(source?.driveId || source?.oneDriveId || source?.id || '');
-  const sourceName = normalizeStyleId(source?.driveName || source?.name || source?.fileName || '');
-  const recordDriveId = normalizeStyleId(record?.driveId || record?.oneDriveId || record?.id || '');
-  const recordName = normalizeStyleId(record?.driveName || record?.name || record?.fileName || '');
-  return !!((sourceDriveId && recordDriveId === sourceDriveId) || (sourceName && recordName === sourceName));
+  const sourceDriveId = normalizeImageKey(source?.driveId || source?.oneDriveId || source?.id || '');
+  const sourceName = normalizeImageKey(source?.driveName || source?.name || source?.fileName || '');
+  const recordDriveId = normalizeImageKey(record?.driveId || record?.oneDriveId || record?.id || '');
+  const recordName = normalizeImageKey(record?.driveName || record?.name || record?.fileName || '');
+  if (sourceDriveId && recordDriveId) return recordDriveId === sourceDriveId;
+  return !!(sourceName && recordName === sourceName);
 }
 
 function retryableDeltaSkips(skipped = []) {
@@ -808,11 +819,17 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
   if (!normalizedStyle) throw new Error('Missing style number');
   const resolvedSeries = displaySeriesForStyle(normalizedStyle, series);
 
-  const existing = metadataList.find(img =>
-    normalizeStyleId(img.name || img.fileName || '') === normalizeStyleId(fileName) ||
-    (img.driveName && normalizeStyleId(img.driveName) === normalizeStyleId(fileName))
-  );
-  if (existing) return { added: false, reason: 'already_exists', style: normalizedStyle };
+  const existingIndex = metadataList.findIndex(img => imageRecordMatchesSource(img, { driveId, name: fileName }));
+  if (existingIndex >= 0) {
+    if (thumbnailsFolderId) {
+      const existingThumbnail = await driveSearchFile(thumbnailsFolderId, `${existingIndex}.jpg`);
+      if (!existingThumbnail) {
+        await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
+        cacheThumbnail(existingIndex, imageBuffer);
+      }
+    }
+    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex };
+  }
 
   const embedding = await getIndexEmbedding(imageBuffer);
   if (embedding.length !== embDim) throw new Error(`Unexpected embedding dimension ${embedding.length}, expected ${embDim}`);
@@ -843,12 +860,8 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
   appendImageToMemory(record, embedding);
 
   if (thumbnailsFolderId) {
-    try {
-      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
-      cacheThumbnail(idx, imageBuffer);
-    } catch (e) {
-      console.error('Thumbnail upload error:', e.message);
-    }
+    await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+    cacheThumbnail(idx, imageBuffer);
   }
 
   return { added: true, style: normalizedStyle, index: idx, images: metadataList.length };
@@ -858,15 +871,21 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   if (!searchReady) throw new Error('Search index is not ready');
 
   const normalizedStyle = resolvedStyleId({ name: fileName, fileName, driveName: fileName, style });
-  const normalizedName = normalizeStyleId(fileName);
+  const normalizedName = normalizeImageKey(fileName);
   if (!normalizedStyle) throw new Error('Missing style number');
   const resolvedSeries = displaySeriesForStyle(normalizedStyle, series);
 
-  const existing = metadataList.find(img => {
-    const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
-    return normalizedName && existingName === normalizedName;
-  });
-  if (existing) return { added: false, reason: 'already_exists', style: normalizedStyle };
+  const existingIndex = metadataList.findIndex(img => imageRecordMatchesSource(img, { driveId, name: fileName }));
+  if (existingIndex >= 0) {
+    if (thumbnailsFolderId) {
+      const existingThumbnail = await driveSearchFile(thumbnailsFolderId, `${existingIndex}.jpg`);
+      if (!existingThumbnail) {
+        await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
+        cacheThumbnail(existingIndex, imageBuffer);
+      }
+    }
+    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex };
+  }
 
   let deltaMetadataId;
   let deltaEmbeddingsId;
@@ -881,7 +900,7 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
 
   const deltaMetadata = await readJsonDriveFile(deltaMetadataId, []);
   const deltaExisting = deltaMetadata.find(img => {
-    const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
+    const existingName = normalizeImageKey(img.driveName || img.name || img.fileName || '');
     return normalizedName && existingName === normalizedName;
   });
   if (deltaExisting) {
@@ -927,13 +946,9 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   const idx = metadataList.length;
   appendImageToMemory(record, embedding);
 
-  try {
-    if (thumbnailsFolderId) {
-      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
-      cacheThumbnail(idx, imageBuffer);
-    }
-  } catch (e) {
-    console.error('Delta thumb upload:', e && e.message);
+  if (thumbnailsFolderId) {
+    await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+    cacheThumbnail(idx, imageBuffer);
   }
 
   return {
@@ -952,17 +967,14 @@ function applyMetadataUpdates(records, items) {
 
   for (const item of Array.isArray(items) ? items : []) {
     const fileName = item.fileName || item.name || item.driveName || '';
-    const driveId = normalizeStyleId(item.driveId || item.id || item.oneDriveId || '');
-    const normalizedName = normalizeStyleId(fileName);
+    const driveId = normalizeImageKey(item.driveId || item.id || item.oneDriveId || '');
+    const normalizedName = normalizeImageKey(fileName);
     const normalizedStyle = resolvedStyleId({ name: fileName, fileName, driveName: fileName, style: item.style || item.styleNumber });
     if (!normalizedStyle && !driveId && !normalizedName) continue;
 
     const idx = records.findIndex((record, i) => {
       if (seenIndexes.has(i)) return false;
-      const recordDriveId = normalizeStyleId(record.driveId || record.oneDriveId || record.id || '');
-      const recordName = normalizeStyleId(record.driveName || record.name || record.fileName || '');
-      return (driveId && recordDriveId && recordDriveId === driveId) ||
-        (normalizedName && recordName && recordName === normalizedName);
+      return imageRecordMatchesSource(record, { driveId, name: normalizedName });
     });
 
     if (idx < 0) {
@@ -1204,19 +1216,19 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
         }
       }
       const updatedKeys = new Set(sync.updated.flatMap(item => [
-        item.driveId ? `id:${normalizeStyleId(item.driveId)}` : '',
-        item.name ? `name:${normalizeStyleId(item.name)}` : ''
+        item.driveId ? `id:${normalizeImageKey(item.driveId)}` : '',
+        item.name ? `name:${normalizeImageKey(item.name)}` : ''
       ]).filter(Boolean));
 
       let addsStarted = 0;
       const missing = result.missingDetails || [];
       for (const file of missing) {
         const source = changedImages.find(item =>
-          (file.driveId && normalizeStyleId(file.driveId) === normalizeStyleId(item.driveId)) ||
-          (file.name && normalizeStyleId(file.name) === normalizeStyleId(item.name))
+          (file.driveId && normalizeImageKey(file.driveId) === normalizeImageKey(item.driveId)) ||
+          (file.name && normalizeImageKey(file.name) === normalizeImageKey(item.name))
         );
         if (!source) continue;
-        if (updatedKeys.has(`id:${normalizeStyleId(source.driveId)}`) || updatedKeys.has(`name:${normalizeStyleId(source.name)}`)) continue;
+        if (updatedKeys.has(`id:${normalizeImageKey(source.driveId)}`) || updatedKeys.has(`name:${normalizeImageKey(source.name)}`)) continue;
         if (!source.downloadUrl) {
           sync.skipped.push({ name: source.name, reason: 'no_download_url' });
           continue;

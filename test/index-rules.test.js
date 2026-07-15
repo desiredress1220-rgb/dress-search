@@ -37,6 +37,14 @@ test('image records dedupe by stable drive id or normalized file name', () => {
     { driveId: 'first', driveName: 'a.jpg' },
     { driveId: 'second', name: 'b.jpg' }
   ), false);
+  assert.equal(imageRecordMatchesSource(
+    { driveName: 'MY30268 粉色 (1).JPG' },
+    { name: 'MY30268 粉色 (2).JPG' }
+  ), false);
+  assert.equal(imageRecordMatchesSource(
+    { driveId: 'first', driveName: 'same-name.jpg' },
+    { driveId: 'second', name: 'same-name.jpg' }
+  ), false);
 });
 
 test('transient and safety-limit skips remain retryable', () => {
