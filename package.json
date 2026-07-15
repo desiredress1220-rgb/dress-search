@@ -4,7 +4,8 @@
   "description": "Desire Dress Visual Search - 礼服款号视觉搜索",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/index-rules.test.js"
   },
   "engines": {
     "node": ">=18.0.0"

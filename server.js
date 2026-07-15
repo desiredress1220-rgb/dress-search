@@ -48,6 +48,8 @@ let imageNorms = [];
 let embDim = 1408;
 let thumbnailsFolderId = null; // Drive folder ID for thumbnails
 const thumbCache = {};         // index -> Buffer cache
+const MAX_CACHED_THUMB_BYTES = 200 * 1024;
+const MAX_CACHED_THUMBS = 500;
 const indexFileIds = { metadata: null, embeddings: null, dims: null, deltaMetadata: null, deltaEmbeddings: null, tombstones: null, oneDriveState: null };
 const indexJobs = new Map();
 const HIDDEN_STYLE_PREFIXES = ['MD'];
@@ -96,8 +98,38 @@ function normalizeStyleId(value) {
 
 function extractStyleId(value) {
   const normalized = normalizeStyleId(value);
-  const match = normalized.match(/[A-Z]{1,5}\d{3,6}(?:-[A-Z0-9]+)?/);
+  // A suffix identifies a distinct design variant and must remain in the
+  // searchable style id. Both compact suffixes (MY30230C, MB40482B) and
+  // hyphenated suffixes (MY30089-4, MY30216-2B) are used in production.
+  const match = normalized.match(/[A-Z]{1,5}\d{3,6}(?:[A-Z]+|-[A-Z0-9]+)?/);
   return match ? match[0] : '';
+}
+
+function imageRecordMatchesSource(record, source) {
+  const sourceDriveId = normalizeStyleId(source?.driveId || source?.oneDriveId || source?.id || '');
+  const sourceName = normalizeStyleId(source?.driveName || source?.name || source?.fileName || '');
+  const recordDriveId = normalizeStyleId(record?.driveId || record?.oneDriveId || record?.id || '');
+  const recordName = normalizeStyleId(record?.driveName || record?.name || record?.fileName || '');
+  return !!((sourceDriveId && recordDriveId === sourceDriveId) || (sourceName && recordName === sourceName));
+}
+
+function retryableDeltaSkips(skipped = []) {
+  return skipped.filter(item => {
+    const reason = String(item?.reason || '');
+    return reason === 'add_limit' || reason === 'no_download_url' || reason.startsWith('download_');
+  });
+}
+
+function cacheThumbnail(index, buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length > MAX_CACHED_THUMB_BYTES) return false;
+  const key = String(index);
+  if (!thumbCache[key] && Object.keys(thumbCache).length >= MAX_CACHED_THUMBS) return false;
+  thumbCache[key] = buffer;
+  return true;
+}
+
+function shouldAdvanceDeltaState({ finalDeltaLink, nextLink, errors = [], skipped = [] } = {}) {
+  return !!finalDeltaLink && !nextLink && errors.length === 0 && retryableDeltaSkips(skipped).length === 0;
 }
 
 function renamedStyleId(style) {
@@ -813,7 +845,7 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
   if (thumbnailsFolderId) {
     try {
       await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
-      thumbCache[idx] = imageBuffer;
+      cacheThumbnail(idx, imageBuffer);
     } catch (e) {
       console.error('Thumbnail upload error:', e.message);
     }
@@ -852,7 +884,23 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
     const existingName = normalizeStyleId(img.driveName || img.name || img.fileName || '');
     return normalizedName && existingName === normalizedName;
   });
-  if (deltaExisting) { try { const _idx = metadataList.length + deltaMetadata.indexOf(deltaExisting); if (thumbnailsFolderId && _idx >= metadataList.length) { const _fname = _idx + '.jpg'; const _has = await driveSearchFile(thumbnailsFolderId, _fname); if (!_has) { await driveUploadToFolder(thumbnailsFolderId, _fname, imageBuffer, 'image/jpeg'); thumbCache[_idx] = imageBuffer; } } } catch (e) { console.error('Delta thumb backfill:', e && e.message); } return { added: false, reason: 'already_exists_in_delta', style: normalizedStyle }; }
+  if (deltaExisting) {
+    try {
+      const baseCount = Math.max(0, metadataList.length - deltaMetadata.length);
+      const idx = baseCount + deltaMetadata.indexOf(deltaExisting);
+      if (thumbnailsFolderId && idx >= 0) {
+        const thumbnailName = `${idx}.jpg`;
+        const existingThumbnail = await driveSearchFile(thumbnailsFolderId, thumbnailName);
+        if (!existingThumbnail) {
+          await driveUploadToFolder(thumbnailsFolderId, thumbnailName, imageBuffer, 'image/jpeg');
+          cacheThumbnail(idx, imageBuffer);
+        }
+      }
+    } catch (e) {
+      console.error('Delta thumb backfill:', e && e.message);
+    }
+    return { added: false, reason: 'already_exists_in_delta', style: normalizedStyle };
+  }
 
   const embedding = await getIndexEmbedding(imageBuffer);
   if (embedding.length !== embDim) throw new Error(`Unexpected embedding dimension ${embedding.length}, expected ${embDim}`);
@@ -876,7 +924,25 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   await driveUpdateFile(deltaEmbeddingsId, Buffer.concat([embBuffer, embeddingBuffer]), 'application/octet-stream');
   await driveUpdateFile(deltaMetadataId, Buffer.from(JSON.stringify(deltaMetadata.concat(record))), 'application/json');
 
-  try { const _idx = metadataList.length + deltaMetadata.length; if (thumbnailsFolderId) { await driveUploadToFolder(thumbnailsFolderId, _idx + '.jpg', imageBuffer, 'image/jpeg'); thumbCache[_idx] = imageBuffer; } } catch (e) { console.error('Delta thumb upload:', e && e.message); } return { added: true, style: normalizedStyle, deltaImages: deltaMetadata.length + 1 };
+  const idx = metadataList.length;
+  appendImageToMemory(record, embedding);
+
+  try {
+    if (thumbnailsFolderId) {
+      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+      cacheThumbnail(idx, imageBuffer);
+    }
+  } catch (e) {
+    console.error('Delta thumb upload:', e && e.message);
+  }
+
+  return {
+    added: true,
+    style: normalizedStyle,
+    index: idx,
+    deltaImages: deltaMetadata.length + 1,
+    images: metadataList.length
+  };
 }
 
 function applyMetadataUpdates(records, items) {
@@ -1069,12 +1135,74 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
     changedImages.push(oneDriveImageRecord(item));
   }
 
+  // A dry run must never update metadata, download images, generate
+  // embeddings, write tombstones, or advance the OneDrive delta cursor.
+  if (mode === 'dry-run') {
+    const missing = changedImages.filter(source => !metadataList.some(record => imageRecordMatchesSource(record, source)));
+    return {
+      success: true,
+      mode,
+      hasMoreData: !!nextLink,
+      url: nextLink,
+      deltaLinkSaved: false,
+      retryRequired: false,
+      summary: {
+        files: changes.length,
+        changedImages: changedImages.length,
+        deleted: deleted.length,
+        metadataUpdated: 0,
+        added: 0,
+        missing: missing.length,
+        skipped: 0,
+        errors: 0
+      },
+      sync: {
+        missing: missing.slice(0, 200).map(item => ({
+          driveId: item.driveId,
+          name: item.name,
+          style: item.style,
+          series: item.series
+        })),
+        deleted: deleted.slice(0, 200),
+        updated: [],
+        added: [],
+        skipped: [],
+        errors: [],
+        state: null
+      }
+    };
+  }
+
   const sync = { tombstone: null, updated: [], added: [], skipped: [], errors: [] };
   if (changedImages.length) {
     try {
       const result = await updateIndexMetadata(changedImages);
       sync.updated = result.details || [];
-      if (thumbnailsFolderId) { for (const _src of changedImages) { try { const _srcDriveId = normalizeStyleId(_src.driveId || ''); const _srcName = normalizeStyleId(_src.name || _src.fileName || ''); const _idx = metadataList.findIndex(r => { const rd = normalizeStyleId(r.driveId || r.oneDriveId || r.id || ''); const rn = normalizeStyleId(r.driveName || r.name || r.fileName || ''); return (_srcDriveId && rd === _srcDriveId) || (_srcName && rn === _srcName); }); if (_idx < 0) continue; const _fname = _idx + '.jpg'; const _has = await driveSearchFile(thumbnailsFolderId, _fname); if (_has) continue; if (!_src.downloadUrl) continue; const _resp = await fetch(_src.downloadUrl); if (!_resp.ok) continue; const _buf = Buffer.from(await _resp.arrayBuffer()); await driveUploadToFolder(thumbnailsFolderId, _fname, _buf, 'image/jpeg'); thumbCache[_idx] = _buf; sync.updated.push({ index: _idx, style: (_src.style || _src.styleId || ''), name: _src.name, thumbBackfilled: true }); } catch (_e) { console.error('Thumb backfill loop:', _e && _e.message); } } }
+      // Limit thumbnail repair work to the same small batch size. Scanning and
+      // downloading thumbnails for every item in a large delta page made the
+      // request run for minutes and retained multi-megabyte image buffers.
+      if (thumbnailsFolderId) {
+        let thumbnailsBackfilled = 0;
+        for (const source of changedImages) {
+          if (thumbnailsBackfilled >= addLimit) break;
+          try {
+            const idx = metadataList.findIndex(record => imageRecordMatchesSource(record, source));
+            if (idx < 0) continue;
+            const thumbnailName = `${idx}.jpg`;
+            const existingThumbnail = await driveSearchFile(thumbnailsFolderId, thumbnailName);
+            if (existingThumbnail || !source.downloadUrl) continue;
+            const response = await fetch(source.downloadUrl);
+            if (!response.ok) continue;
+            const buffer = Buffer.from(await response.arrayBuffer());
+            await driveUploadToFolder(thumbnailsFolderId, thumbnailName, buffer, 'image/jpeg');
+            cacheThumbnail(idx, buffer);
+            thumbnailsBackfilled += 1;
+            sync.updated.push({ index: idx, style: source.style || '', name: source.name, thumbBackfilled: true });
+          } catch (e) {
+            console.error('Thumb backfill loop:', e && e.message);
+          }
+        }
+      }
       const updatedKeys = new Set(sync.updated.flatMap(item => [
         item.driveId ? `id:${normalizeStyleId(item.driveId)}` : '',
         item.name ? `name:${normalizeStyleId(item.name)}` : ''
@@ -1130,11 +1258,21 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
     }
   }
 
-  if ((sync.updated.length || sync.added.length || deleted.length) && !sync.errors.length) {
+  // New and updated records are already reflected in memory. A full index
+  // reload is only required to apply deletions; avoiding it keeps each small
+  // batch below the Zeabur memory/timeout limit.
+  if (deleted.length && !sync.errors.length) {
     await loadIndex();
   }
 
-  if (finalDeltaLink && !nextLink && !sync.errors.length && mode !== 'dry-run') {
+  const deferred = retryableDeltaSkips(sync.skipped);
+  const retryRequired = deferred.length > 0 || sync.errors.length > 0;
+
+  // Never checkpoint past files that were skipped because of the 20-image
+  // safety limit (or a transient download problem). The next scheduled run
+  // will read the previous cursor again; already-added images are deduped and
+  // the following batch can then be processed without increasing concurrency.
+  if (shouldAdvanceDeltaState({ finalDeltaLink, nextLink, errors: sync.errors, skipped: sync.skipped })) {
     const stateResult = await writeOneDriveState({
       deltaLink: finalDeltaLink,
       updatedAt: new Date().toISOString()
@@ -1143,11 +1281,12 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
   }
 
   return {
-    success: sync.errors.length === 0,
+    success: !retryRequired,
     mode,
-    hasMoreData: !!nextLink,
+    hasMoreData: !!nextLink || retryRequired,
     url: nextLink,
     deltaLinkSaved: !!sync.state?.saved,
+    retryRequired,
     summary: {
       files: changes.length,
       changedImages: changedImages.length,
@@ -1155,6 +1294,7 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
       metadataUpdated: sync.updated.length,
       added: sync.added.length,
       skipped: sync.skipped.length,
+      deferred: deferred.length,
       errors: sync.errors.length
     },
     sync: {
@@ -1584,7 +1724,7 @@ app.get('/api/thumb/:index', async (req, res) => {
     if (!dlResp) return res.status(404).send('Thumbnail not found');
     const buf = Buffer.from(await dlResp.arrayBuffer());
     // Cache only small thumbnail files. OneDrive fallback may be a full-size image.
-    if (buf.length <= 200 * 1024 && Object.keys(thumbCache).length < 500) thumbCache[cacheKey] = buf;
+    cacheThumbnail(cacheKey, buf);
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400');
     res.send(buf);
@@ -1687,17 +1827,27 @@ async function loadAndInit() {
   }
 }
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  if (!GCP_CREDENTIALS.private_key) { loadError = 'Missing GCP_CREDENTIALS'; console.error(loadError); return; }
-  if (!DRIVE_FOLDER_ID) { loadError = 'Missing DRIVE_FOLDER_ID'; console.error(loadError); return; }
-  loadAndInit().catch(e => { loadError = e.message; console.error('Init failed:', e); });
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    if (!GCP_CREDENTIALS.private_key) { loadError = 'Missing GCP_CREDENTIALS'; console.error(loadError); return; }
+    if (!DRIVE_FOLDER_ID) { loadError = 'Missing DRIVE_FOLDER_ID'; console.error(loadError); return; }
+    loadAndInit().catch(e => { loadError = e.message; console.error('Init failed:', e); });
+  });
 
-setInterval(() => {
-  if (searchReady) schedulePriceCacheRefreshIfNeeded();
-}, 60 * 1000);
+  setInterval(() => {
+    if (searchReady) schedulePriceCacheRefreshIfNeeded();
+  }, 60 * 1000);
 
-setTimeout(() => {
-  if (searchReady) schedulePriceCacheRefreshIfNeeded(true);
-}, 5 * 1000);
+  setTimeout(() => {
+    if (searchReady) schedulePriceCacheRefreshIfNeeded(true);
+  }, 5 * 1000);
+}
+
+module.exports = {
+  extractStyleId,
+  imageRecordMatchesSource,
+  normalizeStyleId,
+  retryableDeltaSkips,
+  shouldAdvanceDeltaState
+};
