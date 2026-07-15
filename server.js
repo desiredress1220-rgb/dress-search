@@ -127,7 +127,7 @@ function imageRecordMatchesSource(record, source) {
 function retryableDeltaSkips(skipped = []) {
   return skipped.filter(item => {
     const reason = String(item?.reason || '');
-    return reason === 'add_limit' || reason === 'no_download_url' || reason.startsWith('download_');
+    return reason === 'add_limit' || reason === 'no_download_url' || reason === 'thumbnail_pending' || reason.startsWith('download_');
   });
 }
 
@@ -821,14 +821,22 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
 
   const existingIndex = metadataList.findIndex(img => imageRecordMatchesSource(img, { driveId, name: fileName }));
   if (existingIndex >= 0) {
+    let thumbnailStored = !thumbnailsFolderId;
     if (thumbnailsFolderId) {
       const existingThumbnail = await driveSearchFile(thumbnailsFolderId, `${existingIndex}.jpg`);
       if (!existingThumbnail) {
-        await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
-        cacheThumbnail(existingIndex, imageBuffer);
+        try {
+          await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
+          cacheThumbnail(existingIndex, imageBuffer);
+          thumbnailStored = true;
+        } catch (e) {
+          console.error('Thumbnail upload error:', e.message);
+        }
+      } else {
+        thumbnailStored = true;
       }
     }
-    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex };
+    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex, thumbnailStored };
   }
 
   const embedding = await getIndexEmbedding(imageBuffer);
@@ -859,12 +867,18 @@ async function addImageToIndex({ imageBuffer, fileName, style, series, driveId, 
 
   appendImageToMemory(record, embedding);
 
+  let thumbnailStored = !thumbnailsFolderId;
   if (thumbnailsFolderId) {
-    await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
-    cacheThumbnail(idx, imageBuffer);
+    try {
+      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+      cacheThumbnail(idx, imageBuffer);
+      thumbnailStored = true;
+    } catch (e) {
+      console.error('Thumbnail upload error:', e.message);
+    }
   }
 
-  return { added: true, style: normalizedStyle, index: idx, images: metadataList.length };
+  return { added: true, style: normalizedStyle, index: idx, images: metadataList.length, thumbnailStored };
 }
 
 async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driveId, parentPath }) {
@@ -877,14 +891,22 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
 
   const existingIndex = metadataList.findIndex(img => imageRecordMatchesSource(img, { driveId, name: fileName }));
   if (existingIndex >= 0) {
+    let thumbnailStored = !thumbnailsFolderId;
     if (thumbnailsFolderId) {
       const existingThumbnail = await driveSearchFile(thumbnailsFolderId, `${existingIndex}.jpg`);
       if (!existingThumbnail) {
-        await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
-        cacheThumbnail(existingIndex, imageBuffer);
+        try {
+          await driveUploadToFolder(thumbnailsFolderId, `${existingIndex}.jpg`, imageBuffer, 'image/jpeg');
+          cacheThumbnail(existingIndex, imageBuffer);
+          thumbnailStored = true;
+        } catch (e) {
+          console.error('Delta thumbnail repair:', e && e.message);
+        }
+      } else {
+        thumbnailStored = true;
       }
     }
-    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex };
+    return { added: false, reason: 'already_exists', style: normalizedStyle, index: existingIndex, thumbnailStored };
   }
 
   let deltaMetadataId;
@@ -946,15 +968,22 @@ async function addImageToDeltaIndex({ imageBuffer, fileName, style, series, driv
   const idx = metadataList.length;
   appendImageToMemory(record, embedding);
 
+  let thumbnailStored = !thumbnailsFolderId;
   if (thumbnailsFolderId) {
-    await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
-    cacheThumbnail(idx, imageBuffer);
+    try {
+      await driveUploadToFolder(thumbnailsFolderId, `${idx}.jpg`, imageBuffer, 'image/jpeg');
+      cacheThumbnail(idx, imageBuffer);
+      thumbnailStored = true;
+    } catch (e) {
+      console.error('Delta thumb upload:', e && e.message);
+    }
   }
 
   return {
     added: true,
     style: normalizedStyle,
     index: idx,
+    thumbnailStored,
     deltaImages: deltaMetadata.length + 1,
     images: metadataList.length
   };
@@ -1212,6 +1241,13 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
             sync.updated.push({ index: idx, style: source.style || '', name: source.name, thumbBackfilled: true });
           } catch (e) {
             console.error('Thumb backfill loop:', e && e.message);
+            const idx = metadataList.findIndex(record => imageRecordMatchesSource(record, source));
+            if (idx >= 0) sync.skipped.push({
+              index: idx,
+              name: source.name,
+              driveId: source.driveId || '',
+              reason: 'thumbnail_pending'
+            });
           }
         }
       }
@@ -1245,14 +1281,21 @@ async function processOneDriveDeltaPayload(payload, { mode = '', addLimit = MAX_
             continue;
           }
           const imageBuffer = Buffer.from(await resp.arrayBuffer());
-          sync.added.push(await addImageToDeltaIndex({
+          const added = await addImageToDeltaIndex({
             imageBuffer,
             fileName: source.name,
             style: source.style,
             series: source.series,
             driveId: source.driveId,
             parentPath: source.parentPath
-          }));
+          });
+          sync.added.push(added);
+          if (added.thumbnailStored === false) sync.skipped.push({
+            index: added.index,
+            name: source.name,
+            driveId: source.driveId || '',
+            reason: 'thumbnail_pending'
+          });
         } catch (e) {
           sync.errors.push({ name: source.name, error: e.message });
         }

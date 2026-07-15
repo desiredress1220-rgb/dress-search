@@ -52,12 +52,14 @@ test('transient and safety-limit skips remain retryable', () => {
     { reason: 'add_limit' },
     { reason: 'no_download_url' },
     { reason: 'download_503' },
+    { reason: 'thumbnail_pending' },
     { reason: 'already_exists' }
   ]);
   assert.deepEqual(deferred.map(item => item.reason), [
     'add_limit',
     'no_download_url',
-    'download_503'
+    'download_503',
+    'thumbnail_pending'
   ]);
 });
 
